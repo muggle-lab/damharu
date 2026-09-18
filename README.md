@@ -2,23 +2,9 @@
 
 사진 한 장이면, 오늘의 기록은 끝.
 
-개인용 사진 일기 앱. KMP(Kotlin Multiplatform)와 CMP(Compose Multiplatform)를 학습하며 iOS부터 구현하고, 이후 Android를 구현한다.
+KMP + Compose Multiplatform으로 만드는 개인용 로컬 사진 일기입니다.
 
-## 현재 상태
+현재 단계: 02 — iOS 사진 선택·촬영. 다음 단계 기능은 별도 PR에서 이어집니다.
 
-01 완료: KMP/CMP 프로젝트와 iOS 홈 달력을 구현했다. iPhone 17e 시뮬레이터 빌드·실행, 달력 단위 테스트 5개와 UI 테스트 2개를 통과했다.
-
-Xcode에서 `iosApp/Damharu.xcodeproj` → `Damharu` scheme → iPhone 시뮬레이터로 실행한다. 개발 환경과 코드 구조는 [DEVELOPMENT.md](docs/DEVELOPMENT.md)에 정리했다.
-
-- 서버·로그인 없이 기기에 기록 저장
-- 하루 한 장, 글은 선택
-- iOS 우선. Android는 후속 단계
-- 디자인: 크림 배경, 올리브 포인트, 사진 중심의 담백한 화면
-
-## 시작하기
-
-1. `docs/PRODUCT.md`에서 확정된 기획 확인
-2. `docs/TASKS.md`에서 현재 단계 확인
-3. 다음 작업은 `docs/tasks/02-photo-source.md` 범위로 진행
-
-화면별로 작업하고, 완료 시 TASKS.md에 변경 사항과 검증 결과를 남긴다. 새 작업에서도 전체 대화를 다시 읽을 필요가 없도록 문서를 유지한다.
+Xcode에서 `iosApp/Damharu.xcodeproj`의 Damharu scheme을 실행합니다.
+개발 방법은 [DEVELOPMENT.md](docs/DEVELOPMENT.md), 작업 범위는 [TASKS.md](docs/TASKS.md)를 참고하세요.
