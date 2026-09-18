@@ -13,3 +13,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Damharu"
 include(":shared")
+include(":androidApp")

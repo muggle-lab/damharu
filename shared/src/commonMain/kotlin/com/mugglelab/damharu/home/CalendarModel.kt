@@ -39,7 +39,7 @@ data class CalendarMonth(val year: Int, val month: Int) {
 enum class SampleScene { Coffee, Walk, Book, Sunset }
 
 /** Temporary in-memory fixture; never represents a persisted user photo. */
-data class DiaryEntry(val date: LocalDate, val scene: SampleScene)
+data class DiaryEntry(val date: LocalDate, val scene: SampleScene = SampleScene.Coffee, val imagePath: String? = null)
 
 fun sampleEntries(today: LocalDate): Map<LocalDate, DiaryEntry> =
     listOf(1, 2, 4, 5, 8, 9, 11, 13, 16, 20, 25, 32).mapIndexed { index, daysAgo ->

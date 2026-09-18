@@ -12,4 +12,5 @@
     <key>CADisableMinimumFrameDurationOnPhone</key><true/>
     <key>UIApplicationSupportsIndirectInputEvents</key><true/>
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
+<key>NSCameraUsageDescription</key><string>오늘의 장면을 사진으로 남기기 위해 카메라를 사용합니다.</string>
 </dict></plist>

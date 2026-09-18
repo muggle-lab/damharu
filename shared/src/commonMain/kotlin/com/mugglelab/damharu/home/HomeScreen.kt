@@ -134,7 +134,8 @@ private fun DayCell(date: LocalDate, today: LocalDate, entry: DiaryEntry?, modif
             .clickable(enabled = date <= today, role = Role.Button, onClick = onClick),
     ) {
         if (entry != null) {
-            SampleThumbnail(entry.scene, Modifier.fillMaxSize())
+            if (entry.imagePath != null) com.mugglelab.damharu.LocalPhoto(entry.imagePath, Modifier.fillMaxSize())
+            else SampleThumbnail(entry.scene, Modifier.fillMaxSize())
             Box(Modifier.fillMaxWidth().height(29.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .35f), Color.Transparent))))
         }
         BasicText(
