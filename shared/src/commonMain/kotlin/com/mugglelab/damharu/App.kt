@@ -21,6 +21,8 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
     var month by rememberSaveable { mutableStateOf(today.month.number) }
     var selected by rememberSaveable { mutableStateOf(today.toString()) }
     var route by rememberSaveable { mutableStateOf("home") }
+    var filter by remember { mutableStateOf(PhotoFilter.Original) }
+    var intensity by remember { mutableStateOf(1f) }
     var source by remember { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -37,7 +39,7 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
             else {
                 picking = false
                 if (failure != null) error = failure
-                else if (path != null) { discardSource(); source = path; route = "editor" }
+                else if (path != null) { discardSource(); source = path; filter = PhotoFilter.Original; intensity = 1f; route = "editor" }
             }
         }
     }
@@ -63,8 +65,8 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
                     DiaryButton("사진 보관함에서 선택", { pick(false) }, Modifier.fillMaxWidth().testTag("pick-photo"))
                     DiaryButton("지금 촬영하기", { pick(true) }, Modifier.fillMaxWidth().testTag("take-photo"))
                 } else {
-                    source?.let { path -> LocalPhoto(path, Modifier.fillMaxWidth().aspectRatio(1f)) }
-                    DiaryText("사진을 선택했어요. 아직 저장되지 않았습니다.", secondary = true)
+                    source?.let { path -> FilterEditor(path, selected, filter, intensity, { filter = it }, { intensity = it }) }
+                    DiaryText("필터 미리보기입니다. 영구 저장은 다음 단계에서 연결됩니다.", secondary = true)
                     DiaryButton("다른 사진 선택", { discardSource(); route = "source" })
                 }
             }
