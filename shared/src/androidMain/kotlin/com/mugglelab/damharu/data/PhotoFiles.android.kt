@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -30,13 +29,13 @@ actual object PhotoFiles {
     actual fun exists(path: String) = File(path).exists()
     actual fun names(path: String) = File(path).list()?.toList().orEmpty()
     actual fun bitmap(path: String): ImageBitmap = (BitmapFactory.decodeFile(path) ?: error("Cannot read image")).asImageBitmap()
-    actual fun render(source: String, destination: String, matrix: FloatArray, maxSide: Int) {
+    actual fun resize(source: String, destination: String, maxSide: Int) {
         val original = BitmapFactory.decodeFile(source) ?: error("Cannot read image")
         try {
             val scale = minOf(1f, maxSide.toFloat() / maxOf(original.width, original.height))
             val output = Bitmap.createBitmap(maxOf(1, (original.width * scale).toInt()), maxOf(1, (original.height * scale).toInt()), Bitmap.Config.ARGB_8888)
             try {
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { colorFilter = ColorMatrixColorFilter(matrix) }
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
                 Canvas(output).drawBitmap(original, null, android.graphics.Rect(0, 0, output.width, output.height), paint)
                 val bytes = ByteArrayOutputStream().use { check(output.compress(Bitmap.CompressFormat.JPEG, 94, it)); it.toByteArray() }
                 write(destination, bytes)

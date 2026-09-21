@@ -28,18 +28,12 @@ actual object PhotoFiles {
     actual fun exists(path: String) = NSFileManager.defaultManager.fileExistsAtPath(path)
     actual fun names(path: String): List<String> = NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, null)?.filterIsInstance<String>().orEmpty()
     actual fun bitmap(path: String): ImageBitmap = Image.makeFromEncoded(read(path)).toComposeImageBitmap()
-    actual fun render(source: String, destination: String, matrix: FloatArray, maxSide: Int) {
+    /** Re-encoding through Skia also drops any metadata the source JPEG carried. */
+    actual fun resize(source: String, destination: String, maxSide: Int) {
         Image.makeFromEncoded(read(source)).using { image ->
             val ratio = minOf(1f, maxSide.toFloat() / maxOf(image.width, image.height))
             Surface.makeRasterN32Premul(maxOf(1, (image.width * ratio).toInt()), maxOf(1, (image.height * ratio).toInt())).using { surface ->
-                // Skia offsets use normalized components; Compose/Android matrices use 0..255.
-                val normalized = matrix.copyOf().also { for (i in listOf(4,9,14,19)) it[i] /= 255f }
-                ColorFilter.makeMatrix(ColorMatrix(normalized)).using { filter ->
-                    Paint().using { paint ->
-                        paint.colorFilter = filter
-                        surface.canvas.drawImageRect(image, Rect.makeWH(surface.width.toFloat(), surface.height.toFloat()), paint)
-                    }
-                }
+                surface.canvas.drawImageRect(image, Rect.makeWH(surface.width.toFloat(), surface.height.toFloat()))
                 surface.makeImageSnapshot().using { output ->
                     val data = output.encodeToData(EncodedImageFormat.JPEG, 94) ?: error("Cannot encode image")
                     data.using { write(destination, it.bytes) }

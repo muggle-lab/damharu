@@ -7,9 +7,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.datetime.LocalDate
 import kotlin.random.Random
 
-/** OS pickers return an app-owned temporary, orientation-normalized JPEG, or cancellation. */
+/** The in-app camera is the only photo input. It returns an app-owned temporary,
+ *  orientation-normalized JPEG path, a failure message, or (null, null) when the user closed it. */
 interface PhotoSource {
-    fun request(camera: Boolean, completion: (String?, String?) -> Unit)
+    fun capture(completion: (String?, String?) -> Unit)
 }
 
 expect object PhotoFiles {
@@ -19,13 +20,14 @@ expect object PhotoFiles {
     fun delete(path: String)
     fun exists(path: String): Boolean
     fun names(path: String): List<String>
-    fun render(source: String, destination: String, matrix: FloatArray, maxSide: Int)
+    fun resize(source: String, destination: String, maxSide: Int)
     fun bitmap(path: String): ImageBitmap
 }
 
+/** One photo per day. Catalogs written before filters were removed also carry original/filter/intensity;
+ *  those keys are ignored on load, the rendered image becomes the photo, and cleanup drops the old original. */
 @Serializable
-data class Record(val date: String, val original: String, val image: String, val thumbnail: String,
-                  val filter: PhotoFilter = PhotoFilter.Original, val intensity: Float = 1f, val memo: String = "")
+data class Record(val date: String, val image: String, val thumbnail: String, val memo: String = "")
 @Serializable
 private data class Catalog(val version: Int = 1, val records: List<Record> = emptyList())
 
@@ -36,7 +38,7 @@ interface RecordFiles {
     fun delete(path: String)
     fun exists(path: String): Boolean
     fun names(path: String): List<String>
-    fun render(source: String, destination: String, matrix: FloatArray, maxSide: Int)
+    fun resize(source: String, destination: String, maxSide: Int)
 }
 private object DeviceRecordFiles : RecordFiles {
     override fun root() = PhotoFiles.root()
@@ -45,7 +47,7 @@ private object DeviceRecordFiles : RecordFiles {
     override fun delete(path: String) = PhotoFiles.delete(path)
     override fun exists(path: String) = PhotoFiles.exists(path)
     override fun names(path: String) = PhotoFiles.names(path)
-    override fun render(source: String, destination: String, matrix: FloatArray, maxSide: Int) = PhotoFiles.render(source, destination, matrix, maxSide)
+    override fun resize(source: String, destination: String, maxSide: Int) = PhotoFiles.resize(source, destination, maxSide)
 }
 
 /** Image files are immutable. Atomically replacing the catalog is the commit point. */
@@ -64,27 +66,25 @@ class DiaryStore(private val files: RecordFiles = DeviceRecordFiles) {
         require(catalog.records.map { it.date }.distinct().size == catalog.records.size)
         catalog.records.forEach {
             LocalDate.parse(it.date)
-            require(it.intensity.isFinite() && it.intensity in 0f..1f)
-            listOf(it.original, it.image, it.thumbnail).forEach { name -> path(name) }
+            listOf(it.image, it.thumbnail).forEach { name -> path(name) }
         }
         return catalog.records.sortedBy { it.date }
     }
     private fun commit(records: List<Record>) {
         files.write(index, json.encodeToString(Catalog(records = records)).encodeToByteArray())
         // Cleanup is best effort AFTER commit; a cleanup failure must not report a failed save.
-        val keep = records.flatMap { listOf(it.original, it.image, it.thumbnail) }.toSet()
+        val keep = records.flatMap { listOf(it.image, it.thumbnail) }.toSet()
         runCatching { files.names(root).filter { it.endsWith(".jpg") && it !in keep }.forEach { files.delete(path(it)) } }
     }
-    fun save(records: List<Record>, date: LocalDate, source: String, filter: PhotoFilter, intensity: Float): List<Record> {
-        require(intensity.isFinite() && intensity in 0f..1f)
-        val id = "${date}-${Random.nextLong().toULong()}"
-        val record = Record(date.toString(), "$id-original.jpg", "$id-image.jpg", "$id-thumb.jpg", filter, intensity,
-            records.find { it.date == date.toString() }?.memo.orEmpty())
-        val created = listOf(record.original, record.image, record.thumbnail)
+    /** Records can only be created or replaced for today; past days stay as they are. */
+    fun save(records: List<Record>, today: LocalDate, source: String): List<Record> {
+        val id = "${today}-${Random.nextLong().toULong()}"
+        val record = Record(today.toString(), "$id-photo.jpg", "$id-thumb.jpg",
+            records.find { it.date == today.toString() }?.memo.orEmpty())
+        val created = listOf(record.image, record.thumbnail)
         try {
-            files.write(path(record.original), files.read(source))
-            files.render(path(record.original), path(record.image), filter.matrix(intensity), 2048)
-            files.render(path(record.image), path(record.thumbnail), PhotoFilter.Original.matrix(1f), 180)
+            files.resize(source, path(record.image), 2048)
+            files.resize(path(record.image), path(record.thumbnail), 180)
             val next = (records.filterNot { it.date == record.date } + record).sortedBy { it.date }
             commit(next)
             return next

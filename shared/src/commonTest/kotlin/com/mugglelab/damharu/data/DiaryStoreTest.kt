@@ -5,9 +5,9 @@ import kotlin.test.*
 
 class DiaryStoreTest {
     private class MemoryFiles : RecordFiles {
-        val data = mutableMapOf("/import.jpg" to byteArrayOf(1,2,3))
+        val data = mutableMapOf("/capture.jpg" to byteArrayOf(1,2,3))
         var failCommit = false
-        var failRender = false
+        var failResize = false
         var failCleanup = false
         override fun root() = "/diary"
         override fun read(path: String) = data[path] ?: error("Missing")
@@ -15,46 +15,68 @@ class DiaryStoreTest {
         override fun delete(path: String) { if (failCleanup) error("Cleanup failed"); data.remove(path) }
         override fun exists(path: String) = data.containsKey(path)
         override fun names(path: String) = data.keys.filter { it.startsWith("$path/") }.map { it.substringAfterLast('/') }
-        override fun render(source: String, destination: String, matrix: FloatArray, maxSide: Int) {
-            if (failRender) error("Encoding failed")
+        override fun resize(source: String, destination: String, maxSide: Int) {
+            if (failResize) error("Encoding failed")
             write(destination, read(source))
         }
     }
-    private val date = LocalDate(2026,9,18)
+    private val today = LocalDate(2026,9,18)
     @Test fun persistReplaceMemoAndDelete() {
         val files = MemoryFiles(); val store = DiaryStore(files)
         assertTrue(store.load().isEmpty())
-        val first = store.save(emptyList(), date, "/import.jpg", PhotoFilter.Warm, .6f)
+        val first = store.save(emptyList(), today, "/capture.jpg")
         assertEquals(first, DiaryStore(files).load())
-        val memo = store.memo(first, date.toString(), " today\nwas nice ")
-        val next = store.save(memo, date, "/import.jpg", PhotoFilter.Mono, .4f)
+        // One photo per day: a record is exactly one photo and one thumbnail.
+        assertEquals(setOf("/capture.jpg", "/diary/records.json", store.path(first.single().image), store.path(first.single().thumbnail)), files.data.keys)
+        val memo = store.memo(first, today.toString(), " today\nwas nice ")
+        val next = store.save(memo, today, "/capture.jpg")
         assertEquals(1, next.size); assertEquals("today was nice", next.single().memo)
-        assertFalse(files.exists(store.path(first.single().original)))
-        assertTrue(store.delete(next, date.toString()).isEmpty())
+        assertFalse(files.exists(store.path(first.single().image)))
+        assertTrue(store.delete(next, today.toString()).isEmpty())
         assertTrue(store.load().isEmpty())
-        assertEquals(setOf("/import.jpg", "/diary/records.json"), files.data.keys)
+        assertEquals(setOf("/capture.jpg", "/diary/records.json"), files.data.keys)
+    }
+    @Test fun replacingTodayKeepsOtherDays() {
+        val files = MemoryFiles(); val store = DiaryStore(files)
+        val yesterday = store.save(emptyList(), LocalDate(2026,9,17), "/capture.jpg")
+        val both = store.save(yesterday, today, "/capture.jpg")
+        val replaced = store.save(both, today, "/capture.jpg")
+        assertEquals(listOf("2026-09-17", "2026-09-18"), replaced.map { it.date })
+        assertEquals(yesterday.single(), replaced.first())
+        assertNotEquals(both.last().image, replaced.last().image)
     }
     @Test fun failedCommitKeepsPreviousRecordAndFiles() {
         val files = MemoryFiles(); val store = DiaryStore(files)
-        val first = store.save(emptyList(), date, "/import.jpg", PhotoFilter.Original, 1f)
+        val first = store.save(emptyList(), today, "/capture.jpg")
         val before = files.data.keys.toSet()
         files.failCommit = true
-        assertFails { store.save(first, date, "/import.jpg", PhotoFilter.Film, 1f) }
+        assertFails { store.save(first, today, "/capture.jpg") }
         assertEquals(first, store.load()); assertEquals(before, files.data.keys)
-        assertFails { store.delete(first, date.toString()) }; assertEquals(first, store.load())
+        assertFails { store.delete(first, today.toString()) }; assertEquals(first, store.load())
     }
-    @Test fun failedRenderNeverCreatesRecord() {
-        val files = MemoryFiles(); files.failRender = true
+    @Test fun failedResizeNeverCreatesRecord() {
+        val files = MemoryFiles(); files.failResize = true
         val store = DiaryStore(files)
-        assertFails { store.save(emptyList(), date, "/import.jpg", PhotoFilter.Clear, 1f) }
-        assertTrue(store.load().isEmpty()); assertEquals(setOf("/import.jpg"), files.data.keys)
+        assertFails { store.save(emptyList(), today, "/capture.jpg") }
+        assertTrue(store.load().isEmpty()); assertEquals(setOf("/capture.jpg"), files.data.keys)
     }
     @Test fun cleanupFailureDoesNotUndoSuccessfulCommit() {
         val files = MemoryFiles(); val store = DiaryStore(files)
-        val first = store.save(emptyList(), date, "/import.jpg", PhotoFilter.Original, 1f)
+        val first = store.save(emptyList(), today, "/capture.jpg")
         files.failCleanup = true
-        val next = store.save(first, date, "/import.jpg", PhotoFilter.Warm, 1f)
+        val next = store.save(first, today, "/capture.jpg")
         assertEquals(next, store.load())
+    }
+    @Test fun legacyFilterCatalogLoadsAndDropsOriginalOnNextCommit() {
+        val files = MemoryFiles(); val store = DiaryStore(files)
+        files.data["/diary/records.json"] = """{"version":1,"records":[{"date":"2026-09-02","original":"a-original.jpg","image":"a-image.jpg","thumbnail":"a-thumb.jpg","filter":"Warm","intensity":0.6,"memo":"kept"}]}""".encodeToByteArray()
+        listOf("a-original.jpg", "a-image.jpg", "a-thumb.jpg").forEach { files.data["/diary/$it"] = byteArrayOf(9) }
+        val loaded = store.load()
+        assertEquals(listOf(Record("2026-09-02", "a-image.jpg", "a-thumb.jpg", "kept")), loaded)
+        store.memo(loaded, "2026-09-02", "still kept")
+        assertFalse(files.exists("/diary/a-original.jpg"))
+        assertTrue(files.exists("/diary/a-image.jpg")); assertTrue(files.exists("/diary/a-thumb.jpg"))
+        assertEquals("still kept", store.load().single().memo)
     }
     @Test fun corruptCatalogIsNotSilentlyReplaced() {
         val files = MemoryFiles(); files.data["/diary/records.json"] = "corrupt".encodeToByteArray()
@@ -63,14 +85,5 @@ class DiaryStoreTest {
     }
     @Test fun preventsPathsOutsidePrivateDirectory() {
         assertFails { DiaryStore(MemoryFiles()).path("../photo.jpg") }
-    }
-    @Test fun zeroIntensityAndOriginalPreservePixels() {
-        val identity = PhotoFilter.Original.matrix(1f)
-        PhotoFilter.entries.forEach { assertContentEquals(identity, it.matrix(0f)) }
-        assertContentEquals(identity, PhotoFilter.Original.matrix(.7f))
-        val gray = PhotoFilter.Mono.matrix(1f)
-        assertContentEquals(gray.sliceArray(0..4), gray.sliceArray(5..9))
-        assertContentEquals(gray.sliceArray(0..4), gray.sliceArray(10..14))
-        assertEquals(1f, gray[18])
     }
 }
