@@ -9,10 +9,16 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.FileProvider
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.lifecycleScope
 import com.mugglelab.damharu.App
@@ -26,34 +32,48 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
 
+/** The in-app CameraX screen is the only photo input; there is no gallery or external camera path. */
 class MainActivity : ComponentActivity(), PhotoSource {
+    private var showingCamera by mutableStateOf(false)
     private var completion: ((String?, String?) -> Unit)? = null
     private var cameraFile: File? = null
-    private val pickPhoto = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> receive(uri) }
-    private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        val file = cameraFile
-        if (success && file != null) receive(Uri.fromFile(file)) else { file?.delete(); cameraFile = null; finish(null, null) }
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (completion != null) {
+            if (granted) showingCamera = true
+            // There is no other way to add a photo, so a denied permission must point at Settings.
+            else finish(null, "카메라 접근이 꺼져 있어요. 설정 > 앱 > 담하루에서 카메라를 허용하면 오늘을 남길 수 있어요.")
+        }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The app uses one fixed dark palette, so system bar icons stay light regardless of the system theme.
+        enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         PhotoFiles.initialize(applicationContext)
-        // Uncommitted imports have no persistent references and are safe to clean at startup.
-        File(cacheDir, "imports").apply { mkdirs() }.listFiles()?.forEach { it.delete() }
+        // Unsaved captures have no persistent references and are safe to clean at startup.
+        File(cacheDir, "captures").apply { mkdirs() }.listFiles()?.forEach { it.delete() }
         File(cacheDir, "camera").apply { mkdirs() }.listFiles()?.forEach { it.delete() }
-        setContent { App(Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date, this) }
+        setContent {
+            Box {
+                Box(if (showingCamera) Modifier.clearAndSetSemantics { } else Modifier) {
+                    App(Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date, this@MainActivity)
+                }
+                if (showingCamera) AndroidCamera(this@MainActivity) { file ->
+                    showingCamera = false
+                    if (file == null) finish(null, null)
+                    else { cameraFile = file; receive(Uri.fromFile(file)) }
+                }
+            }
+        }
     }
-    override fun request(camera: Boolean, completion: (String?, String?) -> Unit) {
-        if (this.completion != null) { completion(null, "사진을 불러오는 중이에요."); return }
+    override fun capture(completion: (String?, String?) -> Unit) {
+        if (this.completion != null) { completion(null, "사진을 준비하는 중이에요."); return }
         this.completion = completion
         try {
-            if (camera) {
-                val file = File.createTempFile("capture-", ".jpg", File(cacheDir, "camera")); cameraFile = file
-                takePhoto.launch(FileProvider.getUriForFile(this, "$packageName.photos", file))
-            } else pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) showingCamera = true
+            else cameraPermission.launch(Manifest.permission.CAMERA)
         } catch (_: Exception) {
             cameraFile?.delete(); cameraFile = null
-            finish(null, if (camera) "카메라를 열 수 없어요. 카메라 앱과 접근 설정을 확인하거나 보관함에서 선택해 주세요." else "사진 선택기를 열 수 없어요. 다시 시도해 주세요.")
+            finish(null, "카메라를 열 수 없어요. 접근 설정을 확인하고 다시 시도해 주세요.")
         }
     }
     private fun finish(path: String?, error: String?) {
@@ -63,12 +83,13 @@ class MainActivity : ComponentActivity(), PhotoSource {
     private fun receive(uri: Uri?) {
         if (uri == null) { finish(null, null); return }
         lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) { runCatching { import(uri) } }
+            val result = withContext(Dispatchers.IO) { runCatching { normalize(uri) } }
             cameraFile?.delete(); cameraFile = null
-            finish(result.getOrNull(), if (result.isFailure) "사진을 읽지 못했어요. 기기에 내려받은 다른 사진으로 다시 시도해 주세요." else null)
+            finish(result.getOrNull(), if (result.isFailure) "촬영한 사진을 준비하지 못했어요. 다시 시도해 주세요." else null)
         }
     }
-    private fun import(uri: Uri): String {
+    /** CameraX writes rotation as EXIF. Bake it in, cap the size, and re-encode without any metadata. */
+    private fun normalize(uri: Uri): String {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         contentResolver.openInputStream(uri).use { BitmapFactory.decodeStream(it, null, bounds) }
         require(bounds.outWidth > 0 && bounds.outHeight > 0)
@@ -89,7 +110,7 @@ class MainActivity : ComponentActivity(), PhotoSource {
                 val opaque = Bitmap.createBitmap(normalized.width, normalized.height, Bitmap.Config.ARGB_8888)
                 try {
                     Canvas(opaque).apply { drawColor(Color.WHITE); drawBitmap(normalized, 0f, 0f, null) }
-                    val output = File.createTempFile("photo-", ".jpg", File(cacheDir, "imports"))
+                    val output = File.createTempFile("photo-", ".jpg", File(cacheDir, "captures"))
                     try { output.outputStream().use { check(opaque.compress(Bitmap.CompressFormat.JPEG, 96, it)) } }
                     catch (error: Exception) { output.delete(); throw error }
                     return output.absolutePath
