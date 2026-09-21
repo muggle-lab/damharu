@@ -39,13 +39,38 @@ class CalendarModelTest {
         }
     }
 
-    @Test fun actionsDistinguishRecordCreationAndFutureDates() {
+    @Test fun onlyTodayCanBeRecorded() {
         val today = LocalDate(2026, 9, 17)
         val entries = sampleEntries(today)
         assertEquals(HomeAction.AddRecord(today), actionForDate(today, today, entries))
         val recorded = LocalDate(2026, 9, 16)
         assertEquals(HomeAction.OpenRecord(recorded), actionForDate(recorded, today, entries))
+        val missed = LocalDate(2026, 9, 14)
+        assertFalse(missed in entries)
+        assertNull(actionForDate(missed, today, entries))
         assertNull(actionForDate(LocalDate(2026, 9, 18), today, entries))
         assertTrue(entries.keys.all { it < today })
+    }
+
+    @Test fun todayWithRecordOpensItInsteadOfCamera() {
+        val today = LocalDate(2026, 9, 17)
+        val entries = mapOf(today to DiaryEntry(today))
+        assertEquals(HomeAction.OpenRecord(today), actionForDate(today, today, entries))
+        assertTrue(canRecord(today, today))
+        assertFalse(canRecord(LocalDate(2026, 9, 16), today))
+        assertFalse(canRecord(LocalDate(2026, 9, 18), today))
+    }
+
+    @Test fun dateLabels() {
+        val sunday = LocalDate(2026, 9, 20)
+        assertEquals("9월 20일, 일요일", sunday.koreanLabel)
+        assertEquals("2026.09.20 SUN", sunday.monoLabel)
+        assertEquals("09.20", sunday.shortMonoLabel)
+        assertEquals("1월 5일, 월요일", LocalDate(2026, 1, 5).koreanLabel)
+    }
+
+    @Test fun monoLabelPadsMonth() {
+        assertEquals("2026.09", CalendarMonth(2026, 9).monoLabel)
+        assertEquals("2026.12", CalendarMonth(2026, 12).monoLabel)
     }
 }

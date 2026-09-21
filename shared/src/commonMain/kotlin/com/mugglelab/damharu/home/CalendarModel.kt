@@ -17,6 +17,8 @@ data class CalendarMonth(val year: Int, val month: Int) {
     val canGoBack: Boolean get() = year > 1 || month > 1
     val canGoForward: Boolean get() = year < 9999 || month < 12
     val label: String get() = "${year}년 ${month}월"
+    /** Film-edge style label, e.g. 2026.09. */
+    val monoLabel: String get() = "$year.${month.toString().padStart(2, '0')}"
 
     fun shiftedBy(months: Int): CalendarMonth = from(firstDay.plus(months, DateTimeUnit.MONTH))
 
@@ -36,6 +38,15 @@ data class CalendarMonth(val year: Int, val month: Int) {
     }
 }
 
+private fun Int.twoDigits() = toString().padStart(2, '0')
+
+/** "9월 20일, 일요일" — serif date line on the record detail. */
+val LocalDate.koreanLabel: String get() = "${month.number}월 ${day}일, ${"월화수목금토일"[dayOfWeek.ordinal]}요일"
+/** "2026.09.20 SUN" — monospace metadata line. */
+val LocalDate.monoLabel: String get() = "$year.${month.number.twoDigits()}.${day.twoDigits()} ${dayOfWeek.name.take(3)}"
+/** "09.19" — neighbour record label. */
+val LocalDate.shortMonoLabel: String get() = "${month.number.twoDigits()}.${day.twoDigits()}"
+
 enum class SampleScene { Coffee, Walk, Book, Sunset }
 
 /** Temporary in-memory fixture; never represents a persisted user photo. */
@@ -52,9 +63,15 @@ sealed interface HomeAction {
     data class OpenRecord(val date: LocalDate) : HomeAction
 }
 
+/** A record can only be created (or its photo replaced) on the day itself. */
+fun canRecord(date: LocalDate, today: LocalDate): Boolean = date == today
+
+/** Recorded days open their record, today opens the camera, and every other day is inert:
+ *  future days have not happened and missed days cannot be filled in afterwards. */
 fun actionForDate(date: LocalDate, today: LocalDate, entries: Map<LocalDate, DiaryEntry>): HomeAction? =
     when {
         date > today -> null
         date in entries -> HomeAction.OpenRecord(date)
-        else -> HomeAction.AddRecord(date)
+        canRecord(date, today) -> HomeAction.AddRecord(date)
+        else -> null
     }
