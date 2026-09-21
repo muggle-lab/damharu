@@ -1,6 +1,5 @@
 package com.mugglelab.damharu
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -10,25 +9,23 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
 
 data class DiaryColors(
-    val background: Color, val ink: Color, val muted: Color,
-    val accent: Color, val onAccent: Color, val line: Color,
+    val background: Color, val panel: Color, val ink: Color, val soft: Color, val muted: Color, val faint: Color,
+    val accent: Color, val onAccent: Color, val line: Color, val stamp: Color, val danger: Color,
 )
 
-private val LightColors = DiaryColors(
-    Color(0xFFF8F7F2), Color(0xFF30372E), Color(0xFF74786D),
-    Color(0xFF54644A), Color.White, Color(0xFFE4E5DC),
+// One fixed dark palette (docs/PRODUCT.md). The app ignores the system appearance on purpose.
+val DiaryPalette = DiaryColors(
+    background = Color.Black, panel = Color(0xFF12110F), ink = Color(0xFFEDE8DD), soft = Color(0xFFC9C3B6),
+    muted = Color(0xFF8F897C), faint = Color(0xFF4A463E), accent = Color(0xFFD98551), onAccent = Color(0xFF0B0A09),
+    line = Color(0xFFEDE8DD).copy(alpha = .14f), stamp = Color(0xFFF08A3C), danger = Color(0xFFB5553F),
 )
-private val DarkColors = DiaryColors(
-    Color(0xFF242520), Color(0xFFEFEEE6), Color(0xFFB7B9AE),
-    Color(0xFFB9C9AA), Color(0xFF24311D), Color(0xFF45483E),
-)
-val LocalDiaryColors = staticCompositionLocalOf { LightColors }
+val LocalDiaryColors = staticCompositionLocalOf { DiaryPalette }
 
-val DiaryTextStyle = TextStyle(fontFamily = FontFamily.Default, fontSize = 15.sp, lineHeight = 22.sp)
+/** Serif for headlines and body, monospace for metadata. Platform families until bundled fonts are decided. */
+val DiaryTextStyle = TextStyle(fontFamily = FontFamily.Serif, fontSize = 15.sp, lineHeight = 23.sp)
+val DiaryMonoStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 2.sp)
 
 @Composable
 fun DiaryTheme(content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalDiaryColors provides if (isSystemInDarkTheme()) DarkColors else LightColors) {
-        content()
-    }
+    CompositionLocalProvider(LocalDiaryColors provides DiaryPalette) { content() }
 }
