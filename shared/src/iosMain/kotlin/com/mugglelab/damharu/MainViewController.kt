@@ -12,3 +12,14 @@ fun MainViewController(photoSource: PhotoSource, dateOverride: String) = Compose
         else Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
     App(today, photoSource)
 }
+
+@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+fun CameraViewController(
+    state: com.mugglelab.damharu.camera.CameraState,
+    actions: com.mugglelab.damharu.camera.CameraActions,
+    preview: platform.UIKit.UIView,
+) = ComposeUIViewController {
+    com.mugglelab.damharu.camera.CameraScreen(state, actions) { modifier ->
+        androidx.compose.ui.viewinterop.UIKitView(factory = { preview }, modifier = modifier)
+    }
+}
