@@ -1,7 +1,12 @@
 package com.mugglelab.damharu.android
 
 import android.content.pm.ActivityInfo
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Outline
+import android.graphics.Paint
 import android.view.Surface
+import android.view.View
+import android.view.ViewOutlineProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.camera.core.*
@@ -12,22 +17,31 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Observer
+import com.mugglelab.damharu.camera.CAMERA_PREVIEW_CORNER_DP
 import com.mugglelab.damharu.camera.CameraActions
 import com.mugglelab.damharu.camera.CameraScreen
 import com.mugglelab.damharu.camera.CameraState
+import com.mugglelab.damharu.data.Film
 import java.io.File
 
 /** CameraX owns native lifecycle, orientation and JPEG capture. UI and zoom state stay shared. */
 @Composable
-fun AndroidCamera(activity: ComponentActivity, onComplete: (File?) -> Unit) {
+fun AndroidCamera(activity: ComponentActivity, onComplete: (File?, Film) -> Unit) {
     val state = remember { CameraState() }
     val preview = remember { PreviewView(activity).apply {
-        // TextureView keeps the Compose viewfinder guides reliably above the preview.
+        // TextureView keeps the Compose viewfinder guides above the preview and lets a layer paint tint it.
         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        // The native view rounds itself with the same radius the shared screen uses.
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, CAMERA_PREVIEW_CORNER_DP * view.resources.displayMetrics.density)
+            }
+        }
+        clipToOutline = true
         scaleType = PreviewView.ScaleType.FIT_CENTER
     } }
     val latestCompletion by rememberUpdatedState(onComplete)
-    val adapter = remember { AndroidCameraAdapter(activity, preview, state) { file -> latestCompletion(file) } }
+    val adapter = remember { AndroidCameraAdapter(activity, preview, state) { file, film -> latestCompletion(file, film) } }
     DisposableEffect(adapter) {
         val oldOrientation = activity.requestedOrientation
         val bars = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
@@ -51,7 +65,7 @@ private class AndroidCameraAdapter(
     private val activity: ComponentActivity,
     private val preview: PreviewView,
     private val state: CameraState,
-    private val complete: (File?) -> Unit,
+    private val complete: (File?, Film) -> Unit,
 ) : CameraActions {
     private val executor = ContextCompat.getMainExecutor(activity)
     private var provider: ProcessCameraProvider? = null
@@ -104,9 +118,18 @@ private class AndroidCameraAdapter(
             }
         }, executor)
     }
+    override fun film(value: Film) {
+        // The hardware layer applies the film's shared sRGB matrix to the live TextureView only;
+        // the captured JPEG stays unfiltered and the shared store bakes the film in when it saves.
+        val matrix = value.matrix
+        if (matrix == null) preview.setLayerType(View.LAYER_TYPE_NONE, null)
+        else preview.setLayerType(View.LAYER_TYPE_HARDWARE, Paint().apply { colorFilter = ColorMatrixColorFilter(matrix) })
+        preview.invalidate()
+    }
     override fun capture() {
         if (disposed || state.busy || !state.ready) return
         state.busy = true
+        val film = state.film
         val file = try { File.createTempFile("capture-", ".jpg", File(activity.cacheDir, "camera").apply { mkdirs() }) }
         catch (_: Exception) { state.busy = false; state.error = "촬영할 공간이 부족해요. 닫고 다시 시도해 주세요."; return }
         pending = file
@@ -115,7 +138,7 @@ private class AndroidCameraAdapter(
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 pending = null
                 if (disposed || completed) { file.delete(); return }
-                completed = true; complete(file)
+                completed = true; complete(file, film)
             }
             override fun onError(exception: ImageCaptureException) {
                 file.delete(); pending = null
@@ -124,7 +147,7 @@ private class AndroidCameraAdapter(
         })
     }
     override fun close() {
-        if (!state.busy && !completed) { completed = true; complete(null) }
+        if (!state.busy && !completed) { completed = true; complete(null, Film.None) }
     }
     fun dispose() {
         disposed = true
@@ -133,5 +156,6 @@ private class AndroidCameraAdapter(
         provider?.unbind(live, capture)
         // An in-flight CameraX callback owns deletion of its unfinished output after unbinding.
         if (!state.busy) pending?.delete()
+        preview.setLayerType(View.LAYER_TYPE_NONE, null)
     }
 }

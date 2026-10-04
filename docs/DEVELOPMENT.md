@@ -18,7 +18,7 @@ xcodebuild -project iosApp/Damharu.xcodeproj -scheme Damharu \
   -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO test
 ```
 
-Kotlin 프레임워크는 SDK별로 따로 만들어진다(`shared/build/xcode-frameworks/Debug/iphonesimulator*`, `iphoneos*`). 공통 API를 바꾼 뒤 Swift에서 "protocol requires function …" 오류가 나면 해당 SDK의 프레임워크가 옛 버전인 것이다. Android Studio는 `OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES`로 Xcode의 'Build Kotlin framework' 스크립트를 건너뛰므로, 실기기용은 아래 명령으로 다시 만든다.
+Kotlin 프레임워크는 SDK별로 따로 만들어진다(`shared/build/xcode-frameworks/Debug/iphonesimulator*`, `iphoneos*`). 공통 API를 바꾼 뒤 Swift에서 "protocol requires function …" 오류가 나면 해당 SDK의 프레임워크가 옛 버전인 것이다. Xcode의 'Build Kotlin framework' 스크립트는 Android Studio가 넘기는 `OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES`에도 건너뛰지 않는다. 이 Gradle 작업이 프레임워크뿐 아니라 Compose 리소스(`compose-resources/`, 스플래시 사진)를 앱 번들에 복사하는데, Android Studio는 자체 DerivedData에 그 복사를 해 주지 않아 건너뛰면 실행 직후 `MissingResourceException`(SIGABRT)으로 죽는다. 그래서 Android Studio의 "Missing build guard" 알림의 "Apply fix"는 적용하지 않는다. 실기기용 프레임워크만 명령줄에서 다시 만들려면 아래 명령을 쓴다.
 
 ```sh
 xcodebuild -project iosApp/Damharu.xcodeproj -scheme Damharu \
@@ -30,13 +30,14 @@ xcodebuild -project iosApp/Damharu.xcodeproj -scheme Damharu \
 ## 코드와 학습 포인트
 
 - `commonMain/App.kt`: 홈 → 카메라 → 촬영 즉시 저장 → 홈, 그리고 상세 흐름과 작업 상태. 영구 데이터와 화면 상태를 구분한다. 셔터가 곧 저장 버튼이라 촬영 뒤 확인 단계가 없다.
-- `PhotoUi.kt`: 공통 이미지 표시, 표시 전용 입자·비네팅(`filmTexture`), 선택적 한 줄 입력. 저장 파일은 건드리지 않는다.
+- `PhotoUi.kt`: 공통 이미지 표시(저장된 그대로), 필름 질감의 실시간 미리보기 `Modifier.filmTexture`(뷰파인더·비행·필름 타일용), 선택적 한 줄 입력.
 - `Theme.kt`: 시스템 모드와 무관한 단일 다크 팔레트 `DiaryPalette`. 명조는 `FontFamily.Serif`, 메타데이터는 `FontFamily.Monospace`.
 - `home/CalendarModel.kt`: 달력 계산과 `canRecord`/`actionForDate`. "오늘만 기록" 규칙은 UI가 아니라 이 순수 함수에 있고 공통 테스트로 검증한다.
+- `data/Film.kt`: 촬영 전에 끼우는 필름. 4x5 색상 행렬과 `FilmTexture`(입자·비네팅 수치, 고정 시드 입자)로 정의해 실시간 프리뷰(iOS Core Image, Android 레이어 페인트)와 저장(Skia/Bitmap `render`)이 같은 값을 쓴다. 기록에는 id 문자열만 남긴다.
 - `data/DiaryStore.kt`: JSON 저장 형식과 날짜별 기록 교체/삭제. RecordFiles를 주입해 저장 실패를 테스트한다.
 - `PhotoFiles`: expect/actual로 플랫폼 파일 읽기·원자적 쓰기·이미지 디코딩/출력을 분리한다.
-- `PhotoSource`: 앱 카메라 촬영 결과(임시 JPEG 경로/실패 문구/닫기)를 콜백으로 공통 UI에 전달하는 인터페이스. iOS의 PhotoCoordinator 또는 Android Activity가 구현한다. 사진 선택기 경로는 없다.
-- `camera/CameraScreen.kt`: 공통 촬영 UI, 뷰파인더 브래킷, 연속 줌 눈금, 금속 셔터와 접근성. `CameraActions`(zoom/capture/close)를 통해 OS 카메라를 제어한다.
+- `PhotoSource`: 앱 카메라 촬영 결과(임시 JPEG 경로/필름 id/실패 문구/닫기)를 콜백으로 공통 UI에 전달하는 인터페이스. 촬영 성공 후에는 카메라가 멈춘 채 남아 있다가 공통 UI의 `closeCamera()`로 즉시 닫힌다(사진이 달력으로 날아가는 연출을 위해). iOS의 PhotoCoordinator 또는 Android Activity가 구현한다. 사진 선택기 경로는 없다.
+- `camera/CameraScreen.kt`: 공통 촬영 UI, 둥근 프리뷰, 뷰파인더 브래킷, 로그 간격·관성 줌 눈금(`zoomPosition`/`zoomTicks`), 금속 셔터, 필름 버튼/목록과 접근성. `CameraActions`(zoom/film/capture/close)를 통해 OS 카메라를 제어한다. Compose는 네이티브 프리뷰 뷰를 모든 플랫폼에서 둥글게 자를 수 없어서 `CAMERA_PREVIEW_CORNER_DP`를 공유하고 iOS는 레이어 cornerRadius, Android는 clipToOutline으로 직접 둥글린다.
 - iOS: `DamharuApp.swift`의 PhotoCoordinator는 카메라 권한과 임시 이미지 전달을, NativeCameraController는 AVFoundation 세션·JPEG 촬영·Metal 미리보기를 담당한다. 세션과 프레임 처리는 전용 직렬 큐에서 실행하고 UI 상태는 메인 스레드에서 갱신한다.
 - Android: `MainActivity.kt`는 카메라 권한·Exif 정규화를, `AndroidCamera.kt`는 CameraX 수명주기·줌·촬영을 담당한다. TextureView 기반 미리보기 위에 Compose 뷰파인더 가이드를 그린다. Bitmap 리사이즈는 androidMain에 있다.
 
@@ -46,7 +47,7 @@ xcodebuild -project iosApp/Damharu.xcodeproj -scheme Damharu \
 
 ## 저장 정책
 
-- 하루 한 장: 긴 변 최대 2048px, 방향을 바로잡은 JPEG 한 장(`<날짜>-<id>-photo.jpg`)과 180px 썸네일(`-thumb.jpg`)만 보관한다. 필터·편집이 없어 이 사진이 곧 원본이다. GPS 등 메타데이터는 저장하지 않는다.
+- 하루 한 장: 긴 변 최대 2048px, 방향을 바로잡은 JPEG 한 장(`<날짜>-<id>-photo.jpg`)과 180px 썸네일(`-thumb.jpg`)만 보관한다. 필름을 끼웠다면 필름이 적용된 결과만 저장하고 필름 없는 원본은 남기지 않는다. GPS 등 메타데이터는 저장하지 않는다.
 - 오늘만 기록: 생성·교체는 오늘 날짜만. 지난 기록은 메모 편집과 삭제만 가능하다.
 - 이전 형식 목록(original/filter/intensity 포함)은 그대로 읽힌다. 알 수 없는 키는 무시하고 필터가 적용된 최종 JPEG를 사진으로 승격하며, 옛 original 파일은 다음 저장 때 미참조 파일로 정리된다.
 - 이미지 결과·썸네일을 새 이름으로 쓴 뒤 목록을 원자적으로 교체한다. 이전 파일은 목록 커밋 이후에만 정리한다.

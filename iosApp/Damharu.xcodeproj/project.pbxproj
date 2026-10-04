@@ -3,14 +3,16 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 46;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		0CDD57B697B5E1F52E1D616E /* DamharuApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA4D33A7120C82F7130D10A1 /* DamharuApp.swift */; };
+		117A9F8BCECB2A97F09F7C71 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 550F38506C3656AB0432B917 /* LaunchScreen.storyboard */; };
 		3088895D25B1528AF18EBF78 /* HomeSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAF9E26CC58CDDA2B0C43430 /* HomeSmokeTests.swift */; };
 		31067D58925912D8DEA9B810 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D6B2CB4E4BE561BD5757668F /* Foundation.framework */; };
 		53BFB6796D6A1CF29B6ED8A8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D6B2CB4E4BE561BD5757668F /* Foundation.framework */; };
+		A11000000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A11000000000000000000002 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,6 +27,8 @@
 
 /* Begin PBXFileReference section */
 		35E1D3C8EDDFE74877EF3034 /* DamharuUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DamharuUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		550F38506C3656AB0432B917 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		A11000000000000000000002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C4D64E3D3C110F7524DBC941 /* Damharu.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Damharu.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C818A4135D4214B689E1E46F /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D6B2CB4E4BE561BD5757668F /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -76,7 +80,6 @@
 			children = (
 				EAF9E26CC58CDDA2B0C43430 /* HomeSmokeTests.swift */,
 			);
-			name = iosAppUITests;
 			path = iosAppUITests;
 			sourceTree = "<group>";
 		};
@@ -92,9 +95,10 @@
 			isa = PBXGroup;
 			children = (
 				FA4D33A7120C82F7130D10A1 /* DamharuApp.swift */,
+				A11000000000000000000002 /* Assets.xcassets */,
 				C818A4135D4214B689E1E46F /* Info.plist */,
+				550F38506C3656AB0432B917 /* LaunchScreen.storyboard */,
 			);
-			name = iosApp;
 			path = iosApp;
 			sourceTree = "<group>";
 		};
@@ -163,8 +167,6 @@
 				Base,
 			);
 			mainGroup = 31FA965F244884CF346A279C;
-			minimizedProjectReferenceProxies = 0;
-			preferredProjectObjectVersion = 77;
 			productRefGroup = 38FDADC510C3FBC40FDCBC1B /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -180,6 +182,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A11000000000000000000001 /* Assets.xcassets in Resources */,
+				117A9F8BCECB2A97F09F7C71 /* LaunchScreen.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -210,7 +214,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\nif [ \"${OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED:-NO}\" = \"YES\" ]; then exit 0; fi\n\"$SRCROOT/../scripts/gradle.sh\" :shared:embedAndSignAppleFrameworkForXcode\n";
+			shellScript = "set -eu\n# No OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED skip: this task is also what copies compose-resources\n# into the app bundle, and Android Studio does not do that for its own DerivedData.\n\"$SRCROOT/../scripts/gradle.sh\" :shared:embedAndSignAppleFrameworkForXcode\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -261,9 +265,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = U47R7R8G22;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -271,7 +275,10 @@
 				);
 				INFOPLIST_FILE = iosApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -290,9 +297,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = U47R7R8G22;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -300,7 +307,10 @@
 				);
 				INFOPLIST_FILE = iosApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",

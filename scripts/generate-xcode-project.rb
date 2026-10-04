@@ -6,6 +6,8 @@ target = project.new_target(:application, 'Damharu', :ios, '16.0')
 group = project.main_group.new_group('iosApp', 'iosApp')
 target.source_build_phase.add_file_reference(group.new_file('DamharuApp.swift'))
 group.new_file('Info.plist')
+target.resources_build_phase.add_file_reference(group.new_file('Assets.xcassets'))
+target.resources_build_phase.add_file_reference(group.new_file('LaunchScreen.storyboard'))
 project.build_configurations.each do |config|
   config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
 end
@@ -13,6 +15,7 @@ target.build_configurations.each do |config|
   s = config.build_settings
   s['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.mugglelab.damharu'
   s['PRODUCT_NAME'] = 'Damharu'
+  s['ASSETCATALOG_COMPILER_APPICON_NAME'] = 'AppIcon'
   s['INFOPLIST_FILE'] = 'iosApp/Info.plist'
   s['SWIFT_VERSION'] = '5.0'
   s['TARGETED_DEVICE_FAMILY'] = '1'
@@ -26,7 +29,8 @@ end
 phase = target.new_shell_script_build_phase('Build Kotlin framework')
 phase.shell_script = <<~SH
   set -eu
-  if [ "${OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED:-NO}" = "YES" ]; then exit 0; fi
+  # No OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED skip: this task is also what copies compose-resources
+  # into the app bundle, and Android Studio does not do that for its own DerivedData.
   "$SRCROOT/../scripts/gradle.sh" :shared:embedAndSignAppleFrameworkForXcode
 SH
 phase.always_out_of_date = '1'

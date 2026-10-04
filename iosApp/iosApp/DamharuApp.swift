@@ -28,7 +28,8 @@ private struct DiaryRoot: UIViewControllerRepresentable {
     JPEG (max 2048px, upright, no location metadata) and handed to the shared UI, which saves them at once. */
 private final class PhotoCoordinator: NSObject, PhotoSource {
     weak var host: UIViewController?
-    private var completion: ((String?, String?) -> Void)?
+    private var completion: ((String?, String?, String?) -> Void)?
+    private weak var camera: NativeCameraController?
     private let queue = DispatchQueue(label: "damharu.photo-capture", qos: .userInitiated)
     private let temp = FileManager.default.temporaryDirectory.appendingPathComponent("damharu-captures", isDirectory: true)
 
@@ -38,10 +39,10 @@ private final class PhotoCoordinator: NSObject, PhotoSource {
         // Captures are never persisted references; remove abandoned ones on next launch.
         for file in (try? FileManager.default.contentsOfDirectory(at: temp, includingPropertiesForKeys: nil)) ?? [] { try? FileManager.default.removeItem(at: file) }
     }
-    func capture(completion: @escaping (String?, String?) -> Void) {
-        guard self.completion == nil else { completion(nil, "사진을 준비하는 중이에요."); return }
+    func capture(completion: @escaping (String?, String?, String?) -> Void) {
+        guard self.completion == nil else { completion(nil, nil, "사진을 준비하는 중이에요."); return }
         self.completion = completion
-        guard NativeCameraController.available else { finish(nil, "이 기기에서는 촬영할 수 없어요. 담하루는 앱에서 찍은 사진만 남길 수 있어요."); return }
+        guard NativeCameraController.available else { finish(nil, nil, "이 기기에서는 촬영할 수 없어요. 담하루는 앱에서 찍은 사진만 남길 수 있어요."); return }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--camera-preview") { presentCamera(); return }
         #endif
@@ -51,26 +52,36 @@ private final class PhotoCoordinator: NSObject, PhotoSource {
         case .authorized: presentCamera()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { allowed in DispatchQueue.main.async {
-                if allowed { self.presentCamera() } else { self.finish(nil, denied) }
+                if allowed { self.presentCamera() } else { self.finish(nil, nil, denied) }
             } }
-        default: finish(nil, denied)
+        default: finish(nil, nil, denied)
         }
     }
     private func presentCamera() {
-        guard var presenter = host else { finish(nil, "화면을 열 수 없어요. 다시 시도해 주세요."); return }
+        guard var presenter = host else { finish(nil, nil, "화면을 열 수 없어요. 다시 시도해 주세요."); return }
         while let next = presenter.presentedViewController { presenter = next }
-        let camera = NativeCameraController { [weak self] image in
+        // The capture stays unfiltered here; the shared store bakes the film in when it saves.
+        let camera = NativeCameraController { [weak self] image, film in
             guard let self else { return }
-            guard let image else { self.finish(nil, nil); return }
+            guard let image else { self.finish(nil, nil, nil); return }
+            // After a shot the camera is still on screen, frozen. The shared UI closes it through
+            // closeCamera() once the photo is ready underneath, so nothing shows in between.
             self.queue.async {
-                do { let path = try self.store(image); DispatchQueue.main.async { self.finish(path, nil) } }
-                catch { DispatchQueue.main.async { self.finish(nil, "촬영한 사진을 준비하지 못했어요. 다시 시도해 주세요.") } }
+                do { let path = try self.store(image); DispatchQueue.main.async { self.finish(path, film.id, nil) } }
+                catch { DispatchQueue.main.async {
+                    self.closeCamera()
+                    self.finish(nil, nil, "촬영한 사진을 준비하지 못했어요. 다시 시도해 주세요.")
+                } }
             }
         }
+        self.camera = camera
         presenter.present(camera, animated: true)
     }
-    private func finish(_ path: String?, _ error: String?) {
-        let callback = completion; completion = nil; callback?(path, error)
+    func closeCamera() {
+        camera?.dismiss(animated: false); camera = nil
+    }
+    private func finish(_ path: String?, _ film: String?, _ error: String?) {
+        let callback = completion; completion = nil; callback?(path, film, error)
     }
     private func store(_ image: UIImage) throws -> String {
         let scale = min(1, 2048 / max(image.size.width, image.size.height))
@@ -108,9 +119,12 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
     #if DEBUG
     private var demoTimer: DispatchSourceTimer?
     #endif
+    private let zoomLock = NSLock()
+    private var pendingZoom: CGFloat? // zoomLock
+    private var zoomScheduled = false // zoomLock
     private var closed = false // cameraQueue only
     private var capturing = false // cameraQueue only
-    private var completion: ((UIImage?) -> Void)? // main only
+    private var completion: ((UIImage?, Film) -> Void)? // main only
     private var demo: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.arguments.contains("--camera-preview")
@@ -118,16 +132,19 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
         return false
         #endif
     }
-    init(completion: @escaping (UIImage?) -> Void) {
+    init(completion: @escaping (UIImage?, Film) -> Void) {
         self.completion = completion
         super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .fullScreen
+        // The calendar keeps rendering underneath, so closing without a transition reveals it instantly.
+        modalPresentationStyle = .overFullScreen
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .portrait }
     override func viewDidLoad() {
         super.viewDidLoad()
         preview.backgroundColor = .black; preview.clipsToBounds = true
+        // Compose draws above this native view but cannot clip it, so the preview rounds its own layer.
+        preview.layer.cornerRadius = CGFloat(CameraScreenKt.CAMERA_PREVIEW_CORNER_DP); preview.layer.cornerCurve = .continuous
         preview.onFramePresented = { [weak self] in
             guard let self, self.completion != nil, self.state.error == nil else { return }
             if !self.state.ready { self.state.ready = true }
@@ -211,15 +228,27 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
             session.startRunning()
         } catch { report("카메라를 열지 못했어요. 닫고 다시 시도해 주세요.") }
     }
+    /// The ruler sends a value every frame while dragging or coasting. Only the newest one matters, so
+    /// requests are coalesced instead of queueing a lock/unlock per frame behind a busy camera queue.
     func zoom(value: Float) {
+        zoomLock.lock()
+        pendingZoom = CGFloat(value)
+        let schedule = !zoomScheduled
+        if schedule { zoomScheduled = true }
+        zoomLock.unlock()
+        guard schedule else { return }
         cameraQueue.async {
-            guard !self.closed, !self.capturing, let device = self.device else { return }
+            self.zoomLock.lock()
+            let target = self.pendingZoom; self.pendingZoom = nil; self.zoomScheduled = false
+            self.zoomLock.unlock()
+            guard let target, !self.closed, !self.capturing, let device = self.device else { return }
             do {
                 try device.lockForConfiguration(); defer { device.unlockForConfiguration() }
-                device.videoZoomFactor = min(max(CGFloat(value) / self.multiplier, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+                device.videoZoomFactor = min(max(target / self.multiplier, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
             } catch { self.report("배율을 변경하지 못했어요. 닫고 다시 시도해 주세요.") }
         }
     }
+    func film(value: Film) { preview.selectFilm(value) }
     func capture() {
         guard !state.busy, state.ready else { return }
         state.busy = true
@@ -227,7 +256,7 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
             let image = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400)).image { c in
                 UIColor(red: 0.7, green: 0.6, blue: 0.45, alpha: 1).setFill(); c.fill(CGRect(x: 0, y: 0, width: 300, height: 400))
             }
-            complete(image); return
+            complete(image, state.film); return
         }
         cameraQueue.async {
             guard !self.closed, self.session.isRunning, !self.capturing else {
@@ -246,7 +275,7 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
             guard error == nil, let data = photo.fileDataRepresentation(), let image = UIImage(data: data) else {
                 self.report("촬영하지 못했어요. 닫고 다시 시도해 주세요."); return
             }
-            DispatchQueue.main.async { self.complete(image) }
+            DispatchQueue.main.async { self.complete(image, self.state.film) }
         }
     }
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -257,11 +286,12 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
     private func report(_ message: String) {
         DispatchQueue.main.async { self.state.busy = false; self.state.ready = false; self.state.error = message }
     }
-    func close() { guard !state.busy else { return }; complete(nil) }
-    private func complete(_ image: UIImage?) {
+    func close() { guard !state.busy else { return }; complete(nil, .none) }
+    private func complete(_ image: UIImage?, _ film: Film) {
         guard let callback = completion else { return }; completion = nil
         shutdown()
-        dismiss(animated: true) { callback(image) }
+        // A cancel slides away as usual. A shot stays up, frozen on its last frame, until the owner closes it.
+        if image == nil { dismiss(animated: true) { callback(nil, film) } } else { callback(image, film) }
     }
     private func shutdown() {
         preview.suspend()
@@ -315,13 +345,14 @@ private final class CameraMetalPreview: MTKView, MTKViewDelegate {
     private let commands: MTLCommandQueue?
     private let outputSpace = CGColorSpace(name: CGColorSpace.sRGB)!
     private let frameLock = NSLock()
-    // These fields are protected by frameLock; UIKit state is main-thread only.
+    // These fields are protected by frameLock; UIKit state and film parameters are main-thread only.
     private var latestBuffer: CVPixelBuffer?
     private var drawScheduled = false
     private var inFlight = false
     private var acceptingFrames = true
     private var needsReadySignal = true
     private var epoch = 0
+    private var filmParameters: [String: Any]?
     var onFramePresented: (() -> Void)?
     var onFailure: (() -> Void)?
     var isAvailable: Bool { commands != nil && imageContext != nil }
@@ -349,6 +380,21 @@ private final class CameraMetalPreview: MTKView, MTKViewDelegate {
         let scale = min(pixels, 1280 / max(bounds.width, bounds.height))
         let target = CGSize(width: max(1, (bounds.width * scale).rounded()), height: max(1, (bounds.height * scale).rounded()))
         if drawableSize != target { drawableSize = target }
+    }
+    /// The live preview runs the film's shared 4x5 matrix through Core Image, so it matches the saved photo.
+    func selectFilm(_ film: Film) {
+        guard let matrix = film.matrix else { filmParameters = nil; return }
+        func vector(_ offset: Int32) -> CIVector {
+            CIVector(x: CGFloat(matrix.get(index: offset)), y: CGFloat(matrix.get(index: offset + 1)),
+                     z: CGFloat(matrix.get(index: offset + 2)), w: CGFloat(matrix.get(index: offset + 3)))
+        }
+        // Core Image bias is normalized; the shared matrix keeps offsets in 0..255.
+        filmParameters = ["inputRVector": vector(0), "inputGVector": vector(5),
+                          "inputBVector": vector(10), "inputAVector": vector(15),
+                          "inputBiasVector": CIVector(x: CGFloat(matrix.get(index: 4)) / 255,
+                                                      y: CGFloat(matrix.get(index: 9)) / 255,
+                                                      z: CGFloat(matrix.get(index: 14)) / 255,
+                                                      w: CGFloat(matrix.get(index: 19)) / 255)]
     }
     func offer(_ buffer: CVPixelBuffer) {
         frameLock.lock()
@@ -385,6 +431,7 @@ private final class CameraMetalPreview: MTKView, MTKViewDelegate {
         }
         autoreleasepool {
             var image = CIImage(cvPixelBuffer: buffer)
+            if let filmParameters { image = image.applyingFilter("CIColorMatrix", parameters: filmParameters) }
             let target = CGRect(x: 0, y: 0, width: drawable.texture.width, height: drawable.texture.height)
             let scale = min(target.width / image.extent.width, target.height / image.extent.height)
             image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))

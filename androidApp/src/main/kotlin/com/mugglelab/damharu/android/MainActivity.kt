@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.lifecycleScope
 import com.mugglelab.damharu.App
+import com.mugglelab.damharu.data.Film
 import com.mugglelab.damharu.data.PhotoFiles
 import com.mugglelab.damharu.data.PhotoSource
 import java.io.File
@@ -35,7 +36,8 @@ import kotlin.time.Clock
 /** The in-app CameraX screen is the only photo input; there is no gallery or external camera path. */
 class MainActivity : ComponentActivity(), PhotoSource {
     private var showingCamera by mutableStateOf(false)
-    private var completion: ((String?, String?) -> Unit)? = null
+    private var completion: ((String?, String?, String?) -> Unit)? = null
+    private var capturedFilm = Film.None
     private var cameraFile: File? = null
     private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (completion != null) {
@@ -57,16 +59,18 @@ class MainActivity : ComponentActivity(), PhotoSource {
                 Box(if (showingCamera) Modifier.clearAndSetSemantics { } else Modifier) {
                     App(Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date, this@MainActivity)
                 }
-                if (showingCamera) AndroidCamera(this@MainActivity) { file ->
-                    showingCamera = false
+                // After a shot the camera stays composed above the app until closeCamera(), so the photo can be
+                // prepared underneath and appear to leave the viewfinder without an in-between screen.
+                if (showingCamera) AndroidCamera(this@MainActivity) { file, film ->
+                    capturedFilm = film
                     if (file == null) finish(null, null)
                     else { cameraFile = file; receive(Uri.fromFile(file)) }
                 }
             }
         }
     }
-    override fun capture(completion: (String?, String?) -> Unit) {
-        if (this.completion != null) { completion(null, "사진을 준비하는 중이에요."); return }
+    override fun capture(completion: (String?, String?, String?) -> Unit) {
+        if (this.completion != null) { completion(null, null, "사진을 준비하는 중이에요."); return }
         this.completion = completion
         try {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) showingCamera = true
@@ -76,9 +80,11 @@ class MainActivity : ComponentActivity(), PhotoSource {
             finish(null, "카메라를 열 수 없어요. 접근 설정을 확인하고 다시 시도해 주세요.")
         }
     }
+    override fun closeCamera() { showingCamera = false }
     private fun finish(path: String?, error: String?) {
+        if (path == null) showingCamera = false // Cancels and failures close the camera themselves.
         val callback = completion; completion = null
-        if (callback == null) path?.let { File(it).delete() } else callback(path, error)
+        if (callback == null) path?.let { File(it).delete() } else callback(path, if (path != null) capturedFilm.id else null, error)
     }
     private fun receive(uri: Uri?) {
         if (uri == null) { finish(null, null); return }

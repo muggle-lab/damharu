@@ -1,5 +1,6 @@
 package com.mugglelab.damharu.home
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,16 +15,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -36,6 +43,7 @@ import com.mugglelab.damharu.DiaryMonoStyle
 import com.mugglelab.damharu.DiaryTextStyle
 import com.mugglelab.damharu.LocalDiaryColors
 import com.mugglelab.damharu.LocalPhoto
+import com.mugglelab.damharu.camera.drawLensShutter
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.number
 
@@ -51,11 +59,10 @@ fun DiaryMono(text: String, modifier: Modifier = Modifier, color: Color = LocalD
     BasicText(text, modifier, style = DiaryMonoStyle.copy(color = color))
 }
 
-/** Pill button. Outline by default; [primary] fills it for the one main action of a screen. */
+/** Pill by default; dialogs supply their rectangular shape. [primary] fills the main action. */
 @Composable
-fun DiaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false) {
+fun DiaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false, shape: Shape = RoundedCornerShape(50)) {
     val colors = LocalDiaryColors.current
-    val shape = RoundedCornerShape(50)
     Box(
         modifier.heightIn(min = 44.dp).clip(shape)
             .then(if (primary) Modifier.background(colors.ink) else Modifier.border(1.dp, colors.faint, shape))
@@ -81,6 +88,11 @@ fun HomeScreen(
     onMonthChange: (CalendarMonth) -> Unit,
     onAction: (HomeAction) -> Unit,
     modifier: Modifier = Modifier,
+    /** A day whose fresh photo is still flying in: its cell stays empty until the flight lands on it. */
+    arrivingDate: LocalDate? = null,
+    /** Root-relative bounds of today's cell, the landing spot for a fresh capture. */
+    onTodayBounds: (Rect) -> Unit = {},
+    onCaptureBounds: (Rect) -> Unit = {},
     demoControls: @Composable () -> Unit = {},
 ) {
     val colors = LocalDiaryColors.current
@@ -111,7 +123,8 @@ fun HomeScreen(
                                 if (date == null) Spacer(Modifier.weight(1f).heightIn(min = 48.dp).aspectRatio(1f))
                                 else {
                                     val action = actionForDate(date, today, entries)
-                                    DayCell(date, today, entries[date], action != null, Modifier.weight(1f)) { action?.let(onAction) }
+                                    DayCell(date, today, entries[date], action != null, date == arrivingDate,
+                                        Modifier.weight(1f).then(if (date == today) Modifier.onGloballyPositioned { onTodayBounds(it.boundsInRoot()) } else Modifier)) { action?.let(onAction) }
                                 }
                             }
                         }
@@ -119,23 +132,16 @@ fun HomeScreen(
                     }
                 }
             }
-            Row(Modifier.align(Alignment.End).padding(end = 12.dp).heightIn(min = 44.dp)
-                .clickable(role = Role.Button, onClickLabel = "이번 달로") { onMonthChange(CalendarMonth.from(today)) }
-                .padding(horizontal = 10.dp).testTag("today-legend"),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Box(Modifier.size(5.dp).background(colors.accent, CircleShape))
-                DiaryMono("TODAY")
-            }
             Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) { demoControls() }
-            // The section under the calendar is intentionally empty (content undecided); this also clears the capture button.
-            Spacer(Modifier.height(140.dp))
+            // The calendar scrolls above the fixed camera deck.
+            Spacer(Modifier.height(132.dp))
         }
-        CaptureButton(Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 26.dp)) { onAction(HomeAction.AddRecord(today)) }
+        CameraDeck(today, Modifier.align(Alignment.BottomCenter), onCaptureBounds, onToday = { onMonthChange(CalendarMonth.from(today)) }) { onAction(HomeAction.AddRecord(today)) }
     }
 }
 
 @Composable
-private fun DayCell(date: LocalDate, today: LocalDate, entry: DiaryEntry?, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun DayCell(date: LocalDate, today: LocalDate, entry: DiaryEntry?, enabled: Boolean, arriving: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val colors = LocalDiaryColors.current
     val shape = RoundedCornerShape(2.dp)
     val missed = entry == null && date < today
@@ -149,13 +155,17 @@ private fun DayCell(date: LocalDate, today: LocalDate, entry: DiaryEntry?, enabl
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
     ) {
         if (entry != null) {
-            if (entry.imagePath != null) LocalPhoto(entry.imagePath, Modifier.fillMaxSize())
-            else SampleThumbnail(entry.scene, Modifier.fillMaxSize())
-            // Darken only the bottom of the thumbnail presentation so the day number stays legible.
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = .55f)))))
+            // While its photo is still flying in, the thumbnail is composed but invisible: it decodes during
+            // the flight, so the cell is already filled the instant the overlay lands and disappears.
+            Box(Modifier.fillMaxSize().alpha(if (arriving) 0f else 1f)) {
+                if (entry.imagePath != null) LocalPhoto(entry.imagePath, Modifier.fillMaxSize())
+                else SampleThumbnail(entry.scene, Modifier.fillMaxSize())
+                // Darken only the bottom of the thumbnail presentation so the day number stays legible.
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = .55f)))))
+            }
         }
         if (date == today) {
-            if (entry == null) Box(Modifier.matchParentSize().drawBehind {
+            if (entry == null || arriving) Box(Modifier.matchParentSize().drawBehind {
                 drawRoundRect(colors.faint, cornerRadius = CornerRadius(2.dp.toPx()),
                     style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))))
             })
@@ -165,7 +175,7 @@ private fun DayCell(date: LocalDate, today: LocalDate, entry: DiaryEntry?, enabl
             date.day.toString(), Modifier.align(Alignment.BottomStart).padding(start = 5.dp, bottom = 3.dp),
             style = DiaryMonoStyle.copy(
                 color = when {
-                    entry != null -> colors.ink.copy(alpha = .92f)
+                    entry != null && !arriving -> colors.ink.copy(alpha = .92f)
                     date == today -> colors.ink
                     date > today -> Color(0xFF2A2824)
                     else -> Color(0xFF35322C)
@@ -176,29 +186,53 @@ private fun DayCell(date: LocalDate, today: LocalDate, entry: DiaryEntry?, enabl
     }
 }
 
-/** Metal shutter-like button: the single way to add today's photo. */
+/** Floating date and lens group. The date returns to this month; the lens opens today's camera. */
 @Composable
-private fun CaptureButton(modifier: Modifier, onClick: () -> Unit) {
-    Box(
-        modifier.size(60.dp).clip(CircleShape).testTag("capture-today")
-            .semantics { contentDescription = "오늘 한 장 촬영" }
-            .clickable(role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val radius = size.minDimension / 2
-            drawCircle(Color(0xFF6A655B), radius)
-            drawCircle(Color.Black, radius - 1.dp.toPx())
-            drawCircle(Brush.radialGradient(listOf(Color.White, Color(0xFFCFCABF), Color(0xFF7D786D)),
-                center = Offset(size.width * .35f, size.height * .28f), radius = radius * 1.5f), radius - 3.dp.toPx())
-            val ink = Color(0xFF1B1A17); val stroke = Stroke(1.6.dp.toPx(), cap = StrokeCap.Round)
-            val w = 22.dp.toPx(); val h = 15.dp.toPx()
-            val left = (size.width - w) / 2; val top = (size.height - h) / 2 + 1.5.dp.toPx()
-            drawRoundRect(ink, Offset(left, top), Size(w, h), CornerRadius(2.dp.toPx()), style = stroke)
-            drawLine(ink, Offset(left + w * .32f, top), Offset(left + w * .4f, top - 3.dp.toPx()), stroke.width, StrokeCap.Round)
-            drawLine(ink, Offset(left + w * .4f, top - 3.dp.toPx()), Offset(left + w * .6f, top - 3.dp.toPx()), stroke.width, StrokeCap.Round)
-            drawLine(ink, Offset(left + w * .6f, top - 3.dp.toPx()), Offset(left + w * .68f, top), stroke.width, StrokeCap.Round)
-            drawCircle(ink, 4.dp.toPx(), Offset(size.width / 2, top + h / 2), style = stroke)
+private fun CameraDeck(today: LocalDate, modifier: Modifier, onCaptureBounds: (Rect) -> Unit, onToday: () -> Unit, onCapture: () -> Unit) {
+    val colors = LocalDiaryColors.current
+    val sweep = rememberInfiniteTransition(label = "home-lens-light").animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 4200, easing = LinearEasing)), label = "light-position",
+    )
+    Row(modifier.fillMaxWidth().background(colors.background)
+        .padding(start = 22.dp, end = 23.dp, top = 16.dp, bottom = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.End),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).heightIn(min = 48.dp)
+            .wrapContentWidth(Alignment.End)
+            .clickable(role = Role.Button, onClickLabel = "이번 달로", onClick = onToday).testTag("today-legend"),
+            horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.Center) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Box(Modifier.size(5.dp).background(colors.accent, CircleShape))
+                DiaryMono("TODAY")
+            }
+            Spacer(Modifier.height(6.dp))
+            BasicText(today.koreanLabel, style = DiaryTextStyle.copy(color = colors.ink,
+                fontSize = 18.sp, lineHeight = 26.sp, textAlign = TextAlign.End))
+            Spacer(Modifier.height(5.dp))
+            DayCountdown()
+        }
+        // Keep the light outside the clipped hit target; read animation state only while drawing.
+        Box(Modifier.size(82.dp).onGloballyPositioned { onCaptureBounds(it.boundsInRoot()) }.drawWithCache {
+            val light = Brush.sweepGradient(
+                0f to Color.Transparent, .69f to Color.Transparent,
+                .78f to Color(0xFFAECBEA).copy(alpha = .13f),
+                .875f to Color(0xFFE7E2D6).copy(alpha = .8f),
+                .972f to Color.Transparent, 1f to Color.Transparent,
+                center = Offset(size.width / 2, size.height / 2),
+            )
+            onDrawBehind {
+                val progress = sweep.value
+                val opacity = .85f
+                rotate(-110f + progress * 360f) {
+                    drawCircle(light, radius = size.minDimension / 2 + 3.dp.toPx(),
+                        alpha = opacity, style = Stroke(1.5.dp.toPx()))
+                }
+            }
+        }) {
+            Canvas(Modifier.matchParentSize().clip(CircleShape).testTag("capture-today")
+                .semantics { contentDescription = "오늘 한 장 촬영" }
+                .clickable(role = Role.Button, onClick = onCapture)) { drawLensShutter() }
         }
     }
 }

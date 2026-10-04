@@ -7,10 +7,15 @@ import kotlinx.serialization.json.Json
 import kotlinx.datetime.LocalDate
 import kotlin.random.Random
 
-/** The in-app camera is the only photo input. It returns an app-owned temporary,
- *  orientation-normalized JPEG path, a failure message, or (null, null) when the user closed it. */
+/** The in-app camera is the only photo input. It returns an app-owned temporary, orientation-normalized
+ *  and unfiltered JPEG path with the id of the film that was loaded, a failure message, or all nulls when
+ *  the user closed it. The film look is applied once, by [DiaryStore.save]. */
 interface PhotoSource {
-    fun capture(completion: (String?, String?) -> Unit)
+    fun capture(completion: (path: String?, film: String?, failure: String?) -> Unit)
+    /** After a successful shot the camera stays on screen, frozen, until the shared UI has the photo ready
+     *  underneath it and calls this. Closing is instant (no transition) so the viewfinder image appears to
+     *  leave the camera and fly straight into the calendar. Cancels and failures close on their own. */
+    fun closeCamera()
 }
 
 expect object PhotoFiles {
@@ -20,14 +25,15 @@ expect object PhotoFiles {
     fun delete(path: String)
     fun exists(path: String): Boolean
     fun names(path: String): List<String>
-    fun resize(source: String, destination: String, maxSide: Int)
+    fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int)
     fun bitmap(path: String): ImageBitmap
 }
 
-/** One photo per day. Catalogs written before filters were removed also carry original/filter/intensity;
- *  those keys are ignored on load, the rendered image becomes the photo, and cleanup drops the old original. */
+/** One photo per day, with the film already baked in; [film] only remembers which one ([Film.id]).
+ *  Catalogs written by the old filter editor also carry original/filter/intensity; those keys are ignored
+ *  on load, the rendered image becomes the photo, and cleanup drops the old original. */
 @Serializable
-data class Record(val date: String, val image: String, val thumbnail: String, val memo: String = "")
+data class Record(val date: String, val image: String, val thumbnail: String, val memo: String = "", val film: String = "")
 @Serializable
 private data class Catalog(val version: Int = 1, val records: List<Record> = emptyList())
 
@@ -38,7 +44,7 @@ interface RecordFiles {
     fun delete(path: String)
     fun exists(path: String): Boolean
     fun names(path: String): List<String>
-    fun resize(source: String, destination: String, maxSide: Int)
+    fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int)
 }
 private object DeviceRecordFiles : RecordFiles {
     override fun root() = PhotoFiles.root()
@@ -47,7 +53,7 @@ private object DeviceRecordFiles : RecordFiles {
     override fun delete(path: String) = PhotoFiles.delete(path)
     override fun exists(path: String) = PhotoFiles.exists(path)
     override fun names(path: String) = PhotoFiles.names(path)
-    override fun resize(source: String, destination: String, maxSide: Int) = PhotoFiles.resize(source, destination, maxSide)
+    override fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int) = PhotoFiles.render(source, destination, matrix, texture, maxSide)
 }
 
 /** Image files are immutable. Atomically replacing the catalog is the commit point. */
@@ -77,14 +83,15 @@ class DiaryStore(private val files: RecordFiles = DeviceRecordFiles) {
         runCatching { files.names(root).filter { it.endsWith(".jpg") && it !in keep }.forEach { files.delete(path(it)) } }
     }
     /** Records can only be created or replaced for today; past days stay as they are. */
-    fun save(records: List<Record>, today: LocalDate, source: String): List<Record> {
+    fun save(records: List<Record>, today: LocalDate, source: String, film: Film = Film.None): List<Record> {
         val id = "${today}-${Random.nextLong().toULong()}"
         val record = Record(today.toString(), "$id-photo.jpg", "$id-thumb.jpg",
-            records.find { it.date == today.toString() }?.memo.orEmpty())
+            records.find { it.date == today.toString() }?.memo.orEmpty(), film.id)
         val created = listOf(record.image, record.thumbnail)
         try {
-            files.resize(source, path(record.image), 2048)
-            files.resize(path(record.image), path(record.thumbnail), 180)
+            // Only the film-applied photo is kept: there is no unfiltered original to return to.
+            files.render(source, path(record.image), film.matrix, film.texture, 2048)
+            files.render(path(record.image), path(record.thumbnail), null, null, 180)
             val next = (records.filterNot { it.date == record.date } + record).sortedBy { it.date }
             commit(next)
             return next

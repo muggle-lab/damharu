@@ -1,11 +1,13 @@
 package com.mugglelab.damharu
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 data class DiaryColors(
@@ -19,6 +21,8 @@ val DiaryPalette = DiaryColors(
     muted = Color(0xFF8F897C), faint = Color(0xFF4A463E), accent = Color(0xFFD98551), onAccent = Color(0xFF0B0A09),
     line = Color(0xFFEDE8DD).copy(alpha = .14f), stamp = Color(0xFFF08A3C), danger = Color(0xFFB5553F),
 )
+val DiaryDialogShape = RoundedCornerShape(4.dp)
+
 val LocalDiaryColors = staticCompositionLocalOf { DiaryPalette }
 
 /** Serif for headlines and body, monospace for metadata. Platform families until bundled fonts are decided. */

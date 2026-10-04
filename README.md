@@ -11,7 +11,7 @@
 Xcode에서 `iosApp/Damharu.xcodeproj` → `Damharu` scheme → iPhone 시뮬레이터로 실행한다. 개발 환경과 코드 구조는 [DEVELOPMENT.md](docs/DEVELOPMENT.md)에 정리했다.
 
 - 서버·로그인 없이 기기에 기록 저장
-- 하루 한 장, 글은 선택. 기록은 오늘만, 사진은 앱의 카메라로만
+- 하루 한 장, 글은 선택. 기록은 오늘만, 사진은 앱의 카메라로만. 찍기 전에 필름을 끼우고, 필름이 적용된 한 장만 남긴다
 - iOS와 Android에서 공통 Kotlin/Compose 화면 사용
 - 디자인: 전 화면 고정 다크. 순흑 배경, 명조 헤드라인, 모노 메타데이터, 번트 오렌지 포인트의 빈티지 카메라 무드
 

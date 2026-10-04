@@ -1,5 +1,7 @@
 package com.mugglelab.damharu
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -13,6 +15,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ImageShader
 import androidx.compose.ui.graphics.Paint
@@ -27,41 +31,51 @@ import com.mugglelab.damharu.home.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
-import kotlin.random.Random
 
-/** A small noise tile built once and repeated. Fixed seed keeps the grain stable between frames. */
-private val grainTile: ImageBitmap by lazy {
-    val side = 96
-    ImageBitmap(side, side).also { bitmap ->
+/** Building the tile means drawing 9,216 cells, so it is made once per grain strength and kept.
+ *  It must never be rebuilt from a draw cache: drawWithCache is invalidated on every size change, and the
+ *  capture flight changes size every frame. Only touched from the UI thread (Compose draw). */
+private val grainBrushes = mutableMapOf<Float, ShaderBrush>()
+
+private fun grainBrush(texture: FilmTexture): ShaderBrush = grainBrushes.getOrPut(texture.grainAlpha) {
+    val side = FilmTexture.GRAIN_SIDE
+    val tile = ImageBitmap(side, side).also { bitmap ->
         val canvas = Canvas(bitmap)
         val paint = Paint()
-        val random = Random(7)
-        for (y in 0 until side) for (x in 0 until side) {
-            val value = random.nextFloat()
-            paint.color = (if (value > .5f) Color.White else Color.Black).copy(alpha = abs(value - .5f) * .3f)
-            canvas.drawRect(Rect(x.toFloat(), y.toFloat(), x + 1f, y + 1f), paint)
+        FilmTexture.grainCells.forEachIndexed { index, value ->
+            paint.color = (if (value > .5f) Color.White else Color.Black).copy(alpha = abs(value - .5f) * texture.grainAlpha)
+            canvas.drawRect(Rect((index % side).toFloat(), (index / side).toFloat(), index % side + 1f, index / side + 1f), paint)
         }
     }
+    // One grain cell per device pixel; the brush does not depend on the size it is drawn into.
+    ShaderBrush(ImageShader(tile, TileMode.Repeated, TileMode.Repeated))
 }
 
-/** Film grain and vignette are display-only; the saved JPEG is never touched. */
-fun Modifier.filmTexture(): Modifier = drawWithCache {
-    val grain = ShaderBrush(ImageShader(grainTile, TileMode.Repeated, TileMode.Repeated))
-    val vignette = Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .42f)),
-        center = Offset(size.width / 2, size.height / 2), radius = maxOf(size.width, size.height) * .72f)
+/** Live preview of a film's grain and vignette: the viewfinder, the capture flight and the film tiles use it.
+ *  Saved photos get the same numbers burned in by the native export, so nothing here touches a stored file. */
+fun Modifier.filmTexture(texture: FilmTexture?): Modifier = if (texture == null) this else drawWithCache {
+    // Only the vignette depends on size, and a gradient brush is cheap to rebuild while the photo shrinks.
+    val grain = grainBrush(texture)
+    val vignette = Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = texture.vignetteAlpha)),
+        center = Offset(size.width / 2, size.height / 2), radius = maxOf(size.width, size.height) * texture.vignetteRadius)
     onDrawWithContent { drawContent(); drawRect(vignette); drawRect(grain) }
 }
 
+/** [matrix] tints the bitmap at draw time; it is used while a fresh capture is shown before its film is baked in. */
 @Composable
-fun LocalPhoto(path: String, modifier: Modifier = Modifier, film: Boolean = false) {
+fun LocalPhoto(path: String, modifier: Modifier = Modifier, matrix: FloatArray? = null) {
     var bitmap by remember(path) { mutableStateOf<ImageBitmap?>(null) }
     var failed by remember(path) { mutableStateOf(false) }
     LaunchedEffect(path) {
         val result = withContext(Dispatchers.Default) { runCatching { PhotoFiles.bitmap(path) } }
         bitmap = result.getOrNull(); failed = result.isFailure
     }
-    Box(modifier.background(LocalDiaryColors.current.panel).then(if (film) Modifier.filmTexture() else Modifier)) {
-        bitmap?.let { Image(it, "기록 사진", Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+    // Photos are shown exactly as saved: any film look is already in the pixels.
+    Box(modifier.background(LocalDiaryColors.current.panel)) {
+        // Decoding is asynchronous; fading in avoids a hard pop when the pixels arrive.
+        val alpha by animateFloatAsState(if (bitmap != null) 1f else 0f, tween(160))
+        bitmap?.let { Image(it, "기록 사진", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = alpha,
+            colorFilter = matrix?.let { values -> ColorFilter.colorMatrix(ColorMatrix(values)) }) }
         if (failed) DiaryText("사진을 읽을 수 없어요", Modifier.padding(12.dp), secondary = true)
     }
 }
