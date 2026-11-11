@@ -1,0 +1,49 @@
+<div id="film-icon-proposals">
+<style>
+#film-icon-proposals .stage{padding:28px 12px;min-height:330px;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+#film-icon-proposals .camera{width:390px;max-width:100%;background:#070706;color:#ede8dd;padding:24px 10px 22px;box-sizing:border-box;border-radius:20px;font-family:Georgia,'Times New Roman',serif}
+#film-icon-proposals .meta{font:11px ui-monospace,monospace;letter-spacing:2px;color:#a49d90;display:flex;justify-content:space-between;margin:0 12px 28px}
+#film-icon-proposals .options{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}
+#film-icon-proposals .option{appearance:none;background:transparent;color:#b0aa9e;border:0;padding:6px 0;min-width:0;display:flex;align-items:center;flex-direction:column;gap:11px;font:12px Georgia,serif;border-radius:8px}
+#film-icon-proposals .symbol{width:48px;height:48px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;position:relative}
+#film-icon-proposals .symbol svg{width:28px;height:28px;stroke-width:1.4}
+#film-icon-proposals .option[aria-pressed=true]{color:#ede8dd}
+#film-icon-proposals .option[aria-pressed=true] .symbol{color:#d98551}
+#film-icon-proposals .option:disabled{color:#746e63}
+#film-icon-proposals .mark{width:4px;height:4px;border-radius:50%;background:transparent}
+#film-icon-proposals .option[aria-pressed=true] .mark{background:#d98551}
+#film-icon-proposals .shutter-row{display:flex;align-items:center;justify-content:center;position:relative;margin-top:30px;height:78px}
+#film-icon-proposals .lens{width:68px;height:68px;border-radius:50%;border:1px solid #55544d;box-shadow:0 0 0 4px #151716,inset 0 0 0 5px #242827,inset 0 0 0 7px #090d10;background:radial-gradient(ellipse at 39% 30%,#405760 0%,#142934 16%,#060b10 40%,#172028 59%,#030404 62%)}
+#film-icon-proposals .loaded{position:absolute;right:9px;bottom:20px;display:flex;align-items:center;gap:6px;font-size:11px;color:#d98551}
+#film-icon-proposals .loaded svg{width:15px;height:15px}
+#film-icon-proposals .round .symbol{border-radius:50%;border:1px solid #39372f;background:#151410}
+#film-icon-proposals .round .option[aria-pressed=true] .symbol{border-color:#d98551;background:#281b12}
+#film-icon-proposals .round .option:disabled .symbol{border-style:dashed;background:transparent}
+#film-icon-proposals .frame .symbol{width:42px;height:52px;border-radius:3px;border:1px solid #5b5548;background:linear-gradient(90deg,#29271f 0 5px,#12110f 5px 35px,#29271f 35px)}
+#film-icon-proposals .frame .symbol:before,#film-icon-proposals .frame .symbol:after{content:'';position:absolute;top:5px;bottom:5px;width:3px;background:repeating-linear-gradient(to bottom,#070706 0 4px,transparent 4px 8px)}
+#film-icon-proposals .frame .symbol:before{left:1px}#film-icon-proposals .frame .symbol:after{right:1px}
+#film-icon-proposals .frame .symbol svg{width:23px;height:23px}
+#film-icon-proposals .frame .option[aria-pressed=true] .symbol{border-color:#d98551}
+#film-icon-proposals .frame .option:disabled .symbol{border-color:#39372f;background:#0e0e0b}
+#film-icon-proposals .frame .option:disabled .symbol:before,#film-icon-proposals .frame .option:disabled .symbol:after{opacity:.4}
+</style>
+<div class="viz-carousel viz-dotted-background" aria-label="필름 아이콘 시안 3개" data-previous-label="이전 시안" data-next-label="다음 시안">
+<section data-variant="얇은 선" aria-label="얇은 선 아이콘형"><div class="stage"><div class="camera line" aria-label="얇은 선 필름 선택"><div class="meta"><span>DAMHARU / FILM</span><span>LINE</span></div><div class="options"></div><div class="shutter-row"><div class="lens" aria-hidden="true"></div><div class="loaded"><i data-lucide="film" aria-hidden="true"></i><span>빈티지</span></div></div></div></div></section>
+<section data-variant="원형 배지" aria-label="원형 배지 아이콘형" hidden><div class="stage"><div class="camera round" aria-label="원형 배지 필름 선택"><div class="meta"><span>DAMHARU / FILM</span><span>DIAL</span></div><div class="options"></div><div class="shutter-row"><div class="lens" aria-hidden="true"></div><div class="loaded"><i data-lucide="film" aria-hidden="true"></i><span>빈티지</span></div></div></div></div></section>
+<section data-variant="필름 프레임" aria-label="필름 프레임 아이콘형" hidden><div class="stage"><div class="camera frame" aria-label="필름 프레임 선택"><div class="meta"><span>DAMHARU / FILM</span><span>FRAME</span></div><div class="options"></div><div class="shutter-row"><div class="lens" aria-hidden="true"></div><div class="loaded"><i data-lucide="film" aria-hidden="true"></i><span>빈티지</span></div></div></div></div></section>
+</div>
+<script>
+(()=>{
+const root=document.getElementById('film-icon-proposals');
+const labels=['필름 없음','빈티지','흑백','준비중','준비중'];
+const sets=[['circle-off','film','contrast','ellipsis','ellipsis'],['circle','aperture','contrast','ellipsis','ellipsis'],['scan','sun','contrast','ellipsis','ellipsis']];
+root.querySelectorAll('.camera').forEach((camera,index)=>{
+ const options=camera.querySelector('.options');
+ labels.forEach((label,i)=>{const b=document.createElement('button');b.type='button';b.className='option cursor-interaction';b.disabled=i>2;if(i<3)b.setAttribute('aria-pressed',String(i===1));b.setAttribute('aria-label',i>2?'준비중, 사용할 수 없음':label);b.innerHTML='<span class="symbol"><i data-lucide="'+sets[index][i]+'" aria-hidden="true"></i></span><span>'+label+'</span><span class="mark" aria-hidden="true"></span>';b.addEventListener('click',()=>{options.querySelectorAll('button:not(:disabled)').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));camera.querySelector('.loaded span').textContent=i===0?'필름 없음':label});options.append(b)});
+ const settings={stroke:1.4};
+ if(globalThis.Tweak){const t=new Tweak({container:camera,onChange:()=>camera.querySelectorAll('.symbol svg').forEach(s=>s.style.strokeWidth=settings.stroke)});t.addSlider(settings,'stroke',{label:'아이콘 선 두께',min:1,max:2.5,step:.1})}
+});
+if(globalThis.lucide)lucide.createIcons();
+})();
+</script>
+</div>

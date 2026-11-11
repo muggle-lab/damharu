@@ -1,0 +1,7 @@
+# 필름 아이콘 — 둥근 컴팩트 C안
+
+2026-10-23 사용자 선택. `compact-atlas.png`는 built-in image_gen으로 승인된 C안에서 제작한 투명 2×2 아틀라스다. 앱에는 각 카메라를 분리·축소한 240px PNG 4개를 commonMain Compose resources로 제공한다. 준비중 두 칸은 같은 리소스를 사용한다. 흑백 아이콘은 Compose에서 채도 0을 적용해 완전히 무채색으로 표시한다.
+
+생성 프롬프트: Production sprite atlas extraction from approved C rounded compact camera design. Preserve the exact camera shape, rounded silver metal body, side grip, top controls, flash and large concentric optical lens of the attached image. Output square PNG with genuine alpha transparent background, FOUR cameras in an exact 2x2 equal cell grid. No text, no labels, no underlines, no duplicate small row, no ground shadows. Top left: reference first pearl silver camera with blue lens (no film). Top right: reference second ivory champagne camera with brown grip and amber lens (vintage). Bottom left: reference third dark graphite camera, but fully achromatic grayscale including lens, NO blue or warm tints (monochrome). Bottom right: reference fourth dark dormant graphite camera, dim but recognizable, neutral lens (coming soon). Each camera centered exactly within its own quadrant, identical body size and baseline, occupying 85% of quadrant width and about 65% height. Front-facing. Do not redesign. This is a production icon atlas to split into four equal image files. Isolate cleanly with true transparency, no checkerboard painted into image.
+
+실제 분리: 1280px 아틀라스에서 (x,y)=(20,165), (640,165), (20,675), (640,675)의 590×450 영역을 추출하고 너비 240px로 축소. 원본은 보존한다. 사진 필름 효과와 별개인 선택 UI용 이미지다.
