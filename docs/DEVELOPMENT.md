@@ -28,6 +28,14 @@ xcodebuild -project iosApp/Damharu.xcodeproj -scheme Damharu \
 `scripts/gradle.sh`는 JAVA_HOME이 없으면 Android Studio의 JBR을 찾는다. 전역 Java 설정은 바꾸지 않는다. Xcode build phase에서도 이 스크립트를 사용한다.
 
 
+### Android 빌드 성공 후 설치가 실패할 때
+
+`Requested internal only, but not enough space`는 소스 컴파일 오류가 아니라 대상 기기의 내부 저장 공간 부족이다. Build 창의 성공 여부와 Run 창의 설치 오류를 구분한다.
+
+- 확인: `adb shell df -h /data`. 앱 캐시 정리는 `adb shell pm trim-caches 1G`로 시도할 수 있지만 공간이 늘지 않을 수 있다.
+- 기존 기록이 있는 AVD에 Wipe Data나 앱 제거를 먼저 실행하지 않는다. 원래 AVD를 보존하고 데이터 파티션이 충분한 별도 AVD를 만든다.
+- 2026-11-12: 기존 `Pixel_10_Pro`는 6GB 파티션·약 225MB 여유로 업데이트 설치 실패. 별도 `Damharu_Android_12GB` AVD(Pixel 7 프로필, 기존 설치된 API 37 ARM64 이미지, 데이터 파티션 12GB)를 생성했다. Android Studio 실행 기기 목록에서 새 AVD를 선택한다. 기존 기록은 원래 AVD에 남아 있으며 새 AVD로 자동 복사되지 않는다.
+
 ## 코드와 학습 포인트
 
 - `commonMain/App.kt`: 홈 → 카메라 → 촬영 즉시 저장 → 홈, 그리고 상세 흐름과 작업 상태. 영구 데이터와 화면 상태를 구분한다. 셔터가 곧 저장 버튼이라 촬영 뒤 확인 단계가 없다.

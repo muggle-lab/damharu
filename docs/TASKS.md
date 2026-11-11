@@ -8,6 +8,14 @@
 - 검증: 분리 전 파일 백업과 앱 소스 해시 일치, 최종 iOS Simulator 공통 컴파일·Android host 테스트·assembleDebug 및 공백 검사 통과. 각 중간 커밋별 빌드·UI 테스트 재실행은 미실행.
 - 다음 작업: 커밋별 리뷰 후 사용자 요청 시 원격 push. 이번 작업에서는 push하지 않음.
 
+## 2026-11-12: Android Studio 설치 실패 진단 및 새 AVD 검증
+
+- 원인: Android Studio의 Gradle 빌드는 성공했지만 기존 `Pixel_10_Pro` 에뮬레이터 내부 공간 부족으로 설치 실패. IDE 로그와 직접 `adb install -r`에서 `Requested internal only, but not enough space` 재현. 기존 6GB 파티션의 여유 공간 약 225MB(3%).
+- 캐시 정리를 시도했으나 공간 확보 실패. 기존 앱·사진·AVD는 삭제하지 않고 별도 `Damharu_Android_12GB` AVD 생성(Pixel 7 프로필·설치된 API 37 ARM64 이미지·데이터 파티션 12GB). 새 AVD 여유 약 11GB.
+- 검증: `:androidApp:assembleDebug` 성공, 새 AVD의 `adb install -r` Success 및 `am start -W` Status ok 확인. 소스·라이브러리 변경 없음. 기존 AVD 데이터는 새 AVD에 자동 이전되지 않음.
+- 개발 안내에 공간 부족 진단과 AVD 선택 방법 추가. Android Studio의 실행 기기 목록에서 `Damharu Android 12GB` 선택 필요.
+- 미실행: IDE Run 버튼 재실행·새 AVD에서 실제 촬영/전체 UI 테스트. 다음 작업: Android Studio에서 새 AVD로 개발을 계속하고 기존 AVD 기록이 필요하면 별도로 보존.
+
 ## 2026-11-12: 마케팅 정기 점검 삭제
 
 - 사용자 요청으로 `담하루 마케팅팀 오전 업무` 예약 삭제. 도구의 `deleteStatus: deleted` 확인. 운영안·업무 보드의 현재 예약 상태 갱신.
