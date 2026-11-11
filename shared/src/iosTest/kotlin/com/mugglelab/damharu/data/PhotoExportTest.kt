@@ -34,17 +34,19 @@ class PhotoExportTest {
             assertEquals(32, same.width); assertEquals(24, same.height); same.close()
 
             // A film is the same 4x5 matrix the preview uses, so the saved pixels must follow it.
-            val matrix = Film.Test.matrix!!
-            PhotoFiles.render(source, result, matrix, null, 2048)
-            val filmed = Image.makeFromEncoded(PhotoFiles.read(result)); val filmedBitmap = Bitmap.makeFromImage(filmed)
-            val out = filmedBitmap.getColor(10, 10)
-            val rgb = intArrayOf(Color.getR(input), Color.getG(input), Color.getB(input))
-            val actual = intArrayOf(Color.getR(out), Color.getG(out), Color.getB(out))
-            for (row in 0..2) {
-                val expected = (matrix[row * 5] * rgb[0] + matrix[row * 5 + 1] * rgb[1] + matrix[row * 5 + 2] * rgb[2] + matrix[row * 5 + 4]).coerceIn(0f, 255f)
-                assertTrue(abs(expected - actual[row]) <= 4, "channel $row expected $expected actual ${actual[row]}")
+            for (film in listOf(Film.Monochrome, Film.Warm, Film.Clear, Film.Fade, Film.Natural)) {
+                val matrix = film.matrix!!
+                PhotoFiles.render(source, result, matrix, null, 2048)
+                val filmed = Image.makeFromEncoded(PhotoFiles.read(result)); val filmedBitmap = Bitmap.makeFromImage(filmed)
+                val out = filmedBitmap.getColor(10, 10)
+                val rgb = intArrayOf(Color.getR(input), Color.getG(input), Color.getB(input))
+                val actual = intArrayOf(Color.getR(out), Color.getG(out), Color.getB(out))
+                for (row in 0..2) {
+                    val expected = (matrix[row * 5] * rgb[0] + matrix[row * 5 + 1] * rgb[1] + matrix[row * 5 + 2] * rgb[2] + matrix[row * 5 + 4]).coerceIn(0f, 255f)
+                    assertTrue(abs(expected - actual[row]) <= 4, "${film.id} channel $row expected $expected actual ${actual[row]}")
+                }
+                filmedBitmap.close(); filmed.close()
             }
-            filmedBitmap.close(); filmed.close()
 
             // Vintage burns in a vignette (corners darker than the centre) and grain (pixels no longer all equal),
             // while the centre keeps the captured brightness on average.

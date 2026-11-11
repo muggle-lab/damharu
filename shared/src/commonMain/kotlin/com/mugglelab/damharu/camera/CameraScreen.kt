@@ -1,5 +1,6 @@
 package com.mugglelab.damharu.camera
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +11,10 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.mugglelab.damharu.cartridge
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
@@ -25,8 +30,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -41,8 +44,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mugglelab.damharu.DiaryPalette
+import com.mugglelab.damharu.LocalDiaryColors
 import com.mugglelab.damharu.filmTexture
 import com.mugglelab.damharu.data.Film
+import org.jetbrains.compose.resources.painterResource
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ln
@@ -96,22 +101,17 @@ fun cameraPreviewRect(width: Float, height: Float, safeTop: Float, safeBottom: F
  *  so the iOS and Android adapters round their own preview view with this same value. */
 const val CAMERA_PREVIEW_CORNER_DP = 20
 
-// The camera can be hosted outside DiaryTheme (its own iOS view controller), so it reads the palette directly.
-private val Background = DiaryPalette.background
-private val Ink = DiaryPalette.ink
-private val Muted = DiaryPalette.muted
-private val Pointer = DiaryPalette.accent
-
 @Composable
-private fun Label(text: String, modifier: Modifier = Modifier, color: Color = Ink, size: Int = 14, mono: Boolean = true) {
+private fun Label(text: String, modifier: Modifier = Modifier, color: Color = LocalDiaryColors.current.ink, size: Int = 14, mono: Boolean = true) {
     BasicText(text, modifier, style = TextStyle(color = color, fontSize = size.sp, fontFamily = if (mono) FontFamily.Monospace else FontFamily.Serif))
 }
 
 @Composable
 fun CameraScreen(state: CameraState, actions: CameraActions, preview: @Composable (Modifier) -> Unit) {
+    val colors = LocalDiaryColors.current
     val enabled = state.ready && !state.busy && state.error == null
     var filmsOpen by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().background(Background).safeDrawingPadding()) {
+    Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding().testTag("camera-screen")) {
         // A dismissal action is necessary for cancellation, including devices without a back gesture.
         Box(Modifier.fillMaxWidth().height(CAMERA_TOP_BAR_DP.dp).padding(horizontal = 12.dp)) {
             Box(Modifier.size(44.dp).clickable(enabled = !state.busy, role = Role.Button, onClickLabel = "촬영 닫기") { actions.close() }
@@ -119,8 +119,8 @@ fun CameraScreen(state: CameraState, actions: CameraActions, preview: @Composabl
                 Canvas(Modifier.size(16.dp)) {
                     val stroke = 1.6.dp.toPx()
                     val inset = stroke / 2
-                    drawLine(Ink, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
-                    drawLine(Ink, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
+                    drawLine(colors.ink, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
+                    drawLine(colors.ink, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
                 }
             }
         }
@@ -129,7 +129,7 @@ fun CameraScreen(state: CameraState, actions: CameraActions, preview: @Composabl
             Box(Modifier.width(width).aspectRatio(.75f).clip(RoundedCornerShape(CAMERA_PREVIEW_CORNER_DP.dp))) {
                 preview(Modifier.fillMaxSize())
                 if (!state.ready || state.error != null) {
-                    Box(Modifier.fillMaxSize().background(Background.copy(alpha = .85f)).padding(24.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxSize().background(colors.background.copy(alpha = .85f)).padding(24.dp), contentAlignment = Alignment.Center) {
                         Label(state.error ?: "카메라를 준비하고 있어요…", Modifier.semantics { liveRegion = LiveRegionMode.Polite }, mono = false)
                     }
                 }
@@ -138,7 +138,7 @@ fun CameraScreen(state: CameraState, actions: CameraActions, preview: @Composabl
                     Box(Modifier.fillMaxSize().filmTexture(state.film.texture))
                     ViewfinderGuides(Modifier.fillMaxSize())
                     if (state.film != Film.None) Label(state.film.monoName, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 44.dp)
-                        .background(Color.Black.copy(alpha = .45f), RoundedCornerShape(50)).padding(horizontal = 9.dp, vertical = 3.dp), size = 10)
+                        .background(Color.Black.copy(alpha = .45f), RoundedCornerShape(50)).padding(horizontal = 9.dp, vertical = 3.dp), color = DiaryPalette.ink, size = 10)
                 }
             }
         }
@@ -160,70 +160,58 @@ fun CameraScreen(state: CameraState, actions: CameraActions, preview: @Composabl
     }
 }
 
-/** Right of the shutter, like the film door of a compact camera. Accent color means a film is loaded or the list is open. */
+/** The film button and picker share the shelf cartridge artwork. */
 @Composable
 private fun FilmButton(film: Film, open: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val active = open || film != Film.None
-    val color = (if (active) Pointer else Ink).copy(alpha = if (enabled) 1f else .35f)
-    Column(modifier.width(64.dp).clickable(enabled, role = Role.Button, onClick = onClick).testTag("camera-films")
+    val colors = LocalDiaryColors.current
+    Column(modifier.width(64.dp).alpha(if (enabled) 1f else .35f).clickable(enabled, role = Role.Button, onClick = onClick).testTag("camera-films")
         .semantics(mergeDescendants = true) { contentDescription = "필름 선택, ${film.label}" }, horizontalAlignment = Alignment.CenterHorizontally) {
-        Canvas(Modifier.size(44.dp)) {
-            val stroke = Stroke(1.dp.toPx())
-            drawCircle(if (active) color else DiaryPalette.faint, size.minDimension / 2 - stroke.width, style = stroke)
-            // A 35mm cartridge: body, spool cap and the film leader coming out of it.
-            val w = 11.dp.toPx(); val h = 16.dp.toPx(); val left = size.width / 2 - 9.dp.toPx(); val top = (size.height - h) / 2 + 1.dp.toPx()
-            drawRoundRect(color, Offset(left, top), Size(w, h), CornerRadius(1.5.dp.toPx()), style = stroke)
-            drawLine(color, Offset(left + w * .3f, top - 2.5.dp.toPx()), Offset(left + w * .7f, top - 2.5.dp.toPx()), 2.dp.toPx())
-            drawLine(color, Offset(left + w, top + 3.dp.toPx()), Offset(left + w + 8.dp.toPx(), top + 3.dp.toPx()), stroke.width)
-            drawLine(color, Offset(left + w, top + h - 3.dp.toPx()), Offset(left + w + 8.dp.toPx(), top + h - 3.dp.toPx()), stroke.width)
-            drawLine(color, Offset(left + w + 8.dp.toPx(), top + 3.dp.toPx()), Offset(left + w + 8.dp.toPx(), top + h - 3.dp.toPx()), stroke.width)
-        }
+        FilmIcon(film, Modifier.size(58.dp, 44.dp))
         Spacer(Modifier.height(5.dp))
-        Label(if (film == Film.None) "필름" else film.label, color = if (film == Film.None) Muted else Ink, size = 11, mono = false)
+        Label(if (film == Film.None) "필름" else film.label, color = if (open) colors.accent else if (film == Film.None) colors.muted else colors.ink, size = 11, mono = false)
     }
 }
 
-/** One tile per film. The swatch is a fixed sky/skin/leaf sample drawn through the film's own matrix,
- *  so a tile shows its look without needing a live camera frame. */
+/** Cartridges identify each stock; labels carry the accessible names. */
 @Composable
 private fun FilmList(selected: Film, enabled: Boolean, onSelect: (Film) -> Unit) {
-    Row(Modifier.testTag("camera-film-list"), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Film.entries.forEach { film ->
+    val colors = LocalDiaryColors.current
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = Film.available.indexOf(selected).coerceAtLeast(0))
+    LazyRow(Modifier.fillMaxWidth().testTag("camera-film-list"), state = listState,
+        contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(Film.available, key = { it.id }) { film ->
             val on = film == selected
             Column(Modifier.width(72.dp).clickable(enabled, role = Role.Button) { onSelect(film) }.testTag("camera-film-${film.name}")
                 .semantics(mergeDescendants = true) { contentDescription = film.label; this.selected = on }, horizontalAlignment = Alignment.CenterHorizontally) {
-                val shape = RoundedCornerShape(10.dp)
-                Box(Modifier.size(48.dp).then(if (on) Modifier.border(1.dp, Pointer, shape).padding(3.dp) else Modifier.padding(3.dp)).clip(shape).filmTexture(film.texture)) {
-                    Canvas(Modifier.fillMaxSize()) {
-                        val tint = film.matrix?.let { ColorFilter.colorMatrix(ColorMatrix(it)) }
-                        val band = size.height / 3
-                        listOf(Color(0xFF4F86C6), Color(0xFFD9A77F), Color(0xFF4E7A45)).forEachIndexed { index, sample ->
-                            drawRect(sample, Offset(0f, band * index), Size(size.width, band + 1f), colorFilter = tint)
-                        }
-                    }
-                }
+                FilmIcon(film, Modifier.fillMaxWidth().height(48.dp).alpha(if (enabled) 1f else .35f))
                 Spacer(Modifier.height(6.dp))
-                Label(film.label, color = if (on) Ink else Muted, size = 11, mono = false)
-                Box(Modifier.padding(top = 3.dp).size(14.dp, 1.dp).background(if (on) Pointer else Color.Transparent))
+                Label(film.label, color = if (on) colors.ink else colors.muted, size = 11, mono = false)
+                Box(Modifier.padding(top = 3.dp).size(24.dp, 2.dp).background(if (on) colors.accent else Color.Transparent))
             }
         }
     }
 }
 
+@Composable
+private fun FilmIcon(film: Film, modifier: Modifier) {
+    Image(painterResource(film.cartridge), contentDescription = null, modifier = modifier)
+}
+
 /** Corner brackets and a centre focus mark, drawn above the native preview like an optical viewfinder. */
 @Composable
 private fun ViewfinderGuides(modifier: Modifier) {
+    val colors = DiaryPalette
     Canvas(modifier) {
         val inset = 20.dp.toPx(); val arm = 20.dp.toPx(); val width = 1.dp.toPx()
         listOf(Offset(inset, inset) to Offset(1f, 1f), Offset(size.width - inset, inset) to Offset(-1f, 1f),
             Offset(inset, size.height - inset) to Offset(1f, -1f), Offset(size.width - inset, size.height - inset) to Offset(-1f, -1f),
         ).forEach { (corner, direction) ->
-            drawLine(Pointer, corner, corner + Offset(arm * direction.x, 0f), width)
-            drawLine(Pointer, corner, corner + Offset(0f, arm * direction.y), width)
+            drawLine(colors.accent, corner, corner + Offset(arm * direction.x, 0f), width)
+            drawLine(colors.accent, corner, corner + Offset(0f, arm * direction.y), width)
         }
         val centre = Offset(size.width / 2, size.height / 2); val half = 13.dp.toPx(); val tall = 9.dp.toPx()
-        drawLine(Ink.copy(alpha = .75f), centre + Offset(-half, -tall), centre + Offset(-half, tall), width)
-        drawLine(Ink.copy(alpha = .75f), centre + Offset(half, -tall), centre + Offset(half, tall), width)
+        drawLine(colors.ink.copy(alpha = .75f), centre + Offset(-half, -tall), centre + Offset(-half, tall), width)
+        drawLine(colors.ink.copy(alpha = .75f), centre + Offset(half, -tall), centre + Offset(half, tall), width)
     }
 }
 
@@ -255,6 +243,7 @@ private const val RULER_DP_PER_DOUBLING = 96f
 
 @Composable
 private fun ZoomRuler(state: CameraState, enabled: Boolean, onZoom: (Float) -> Unit) {
+    val colors = LocalDiaryColors.current
     val currentOnZoom by rememberUpdatedState(onZoom)
     val currentZoom = state.zoom
     val scope = rememberCoroutineScope()
@@ -282,8 +271,8 @@ private fun ZoomRuler(state: CameraState, enabled: Boolean, onZoom: (Float) -> U
         if (!position.isRunning && abs(zoomAtPosition(position.value) - state.zoom) > .005f) position.snapTo(zoomPosition(state.zoom))
     }
     val textMeasurer = rememberTextMeasurer()
-    val labelStyle = TextStyle(color = Muted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-    val labels = remember(ticks) { ticks.filter { it.major }.associate { it.zoom to textMeasurer.measure(zoomLabel(it.zoom), labelStyle) } }
+    val labelStyle = TextStyle(color = colors.muted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+    val labels = remember(ticks, labelStyle, textMeasurer) { ticks.filter { it.major }.associate { it.zoom to textMeasurer.measure(zoomLabel(it.zoom), labelStyle) } }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Label(zoomLabel(state.zoom), size = 20)
         // Millimetres are omitted: a fixed 24mm conversion is incorrect on many real cameras.
@@ -309,11 +298,11 @@ private fun ZoomRuler(state: CameraState, enabled: Boolean, onZoom: (Float) -> U
                     val x = centre + (zoomPosition(tick.zoom) - here) * pxPerDoubling
                     if (x < -20.dp.toPx() || x > size.width + 20.dp.toPx()) return@forEach
                     val alpha = (.15f + .85f * (1f - abs(x - centre) / centre)).coerceIn(0f, 1f)
-                    drawLine(Muted.copy(alpha = alpha), Offset(x, 13.dp.toPx()), Offset(x, (if (tick.major) 28 else 20).dp.toPx()), 1.dp.toPx())
+                    drawLine(colors.muted.copy(alpha = alpha), Offset(x, 13.dp.toPx()), Offset(x, (if (tick.major) 28 else 20).dp.toPx()), 1.dp.toPx())
                     labels[tick.zoom]?.let { drawText(it, topLeft = Offset(x - it.size.width / 2f, 35.dp.toPx()), alpha = alpha) }
                 }
-                drawLine(Pointer, Offset(centre, 6.dp.toPx()), Offset(centre, 30.dp.toPx()), 2.dp.toPx())
-                drawPath(Path().apply { moveTo(centre - 5.dp.toPx(), 4.dp.toPx()); lineTo(centre + 5.dp.toPx(), 4.dp.toPx()); lineTo(centre, 11.dp.toPx()); close() }, Pointer)
+                drawLine(colors.accent, Offset(centre, 6.dp.toPx()), Offset(centre, 30.dp.toPx()), 2.dp.toPx())
+                drawPath(Path().apply { moveTo(centre - 5.dp.toPx(), 4.dp.toPx()); lineTo(centre + 5.dp.toPx(), 4.dp.toPx()); lineTo(centre, 11.dp.toPx()); close() }, colors.accent)
             }
         }
     }

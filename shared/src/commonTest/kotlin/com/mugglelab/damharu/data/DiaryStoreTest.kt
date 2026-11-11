@@ -46,6 +46,29 @@ class DiaryStoreTest {
         assertEquals(listOf(Triple(record.image, Film.Test.matrix, null), Triple(record.thumbnail, null, null)), files.rendered.toList())
         assertEquals(record, DiaryStore(files).load().single())
     }
+    @Test fun monochromeIsBakedOnceWithTextureAndRestoresItsIdentity() {
+        val files = MemoryFiles(); val store = DiaryStore(files)
+        val record = store.save(emptyList(), today, "/capture.jpg", Film.Monochrome).single()
+        assertEquals("monochrome", record.film)
+        assertEquals(Film.Monochrome, Film.fromId(DiaryStore(files).load().single().film))
+        assertEquals(listOf(Triple(record.image, Film.Monochrome.matrix, Film.Monochrome.texture),
+            Triple(record.thumbnail, null, null)), files.rendered.toList())
+        assertEquals(listOf(Film.None, Film.Vintage, Film.Monochrome, Film.Warm, Film.Clear, Film.Fade, Film.Natural), Film.available)
+        assertFalse(Film.Test in Film.available)
+        assertEquals(Film.Test, Film.fromId("test")) // Old photos retain their original metadata.
+        val matrix = Film.Monochrome.matrix!!
+        assertContentEquals(matrix.sliceArray(0..4), matrix.sliceArray(5..9))
+        assertContentEquals(matrix.sliceArray(0..4), matrix.sliceArray(10..14))
+    }
+    @Test fun newFilmsPersistAndApplyEffectsOnlyToThePhoto() {
+        for (film in listOf(Film.Warm, Film.Clear, Film.Fade, Film.Natural)) {
+            val files = MemoryFiles(); val store = DiaryStore(files)
+            val record = store.save(emptyList(), today, "/capture.jpg", film).single()
+            assertEquals(film, Film.fromId(DiaryStore(files).load().single().film))
+            assertEquals(listOf(Triple(record.image, film.matrix, film.texture),
+                Triple(record.thumbnail, null, null)), files.rendered.toList())
+        }
+    }
     @Test fun withoutAFilmThePhotoIsSavedAsCaptured() {
         val files = MemoryFiles(); val store = DiaryStore(files)
         val plain = store.save(emptyList(), today, "/capture.jpg").single()

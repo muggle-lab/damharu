@@ -23,8 +23,7 @@ data class FilmTexture(val vignetteAlpha: Float = .42f, val vignetteRadius: Floa
 
 /**
  * A film is chosen before the shot, like loading a roll: it has a fixed look (no strength slider) and is
- * baked into the single saved photo. Without a film the photo is saved exactly as captured. The lineup is
- * undecided; [Test] is a placeholder stock.
+ * baked into the single saved photo. Without a film the photo is saved exactly as captured. [Test] is retained only for existing records.
  *
  * Records store [id] as a plain string instead of the enum, so retiring a film later never breaks
  * decoding of older catalogs.
@@ -35,6 +34,36 @@ data class FilmTexture(val vignetteAlpha: Float = .42f, val vignetteRadius: Floa
 enum class Film(val id: String, val label: String, val monoName: String, val matrix: FloatArray?, val texture: FilmTexture?) {
     None("", "필름 없음", "", null, null),
     Vintage("vintage", "빈티지", "VINTAGE", null, FilmTexture()),
+    Monochrome("monochrome", "흑백", "MONOCHROME", floatArrayOf(
+        .234f, .786f, .079f, 0f, -12f,
+        .234f, .786f, .079f, 0f, -12f,
+        .234f, .786f, .079f, 0f, -12f,
+        0f, 0f, 0f, 1f, 0f,
+    ), FilmTexture(vignetteAlpha = .28f, grainAlpha = .23f)),
+    Warm("warm", "온기", "WARM", floatArrayOf(
+        1.02f, 0.03f, 0f, 0f, 5f,
+        0.01f, 0.97f, 0.01f, 0f, 2f,
+        0f, 0.02f, 0.87f, 0f, 2f,
+        0f, 0f, 0f, 1f, 0f,
+    ), FilmTexture(vignetteAlpha = 0.12f, grainAlpha = 0.08f)),
+    Clear("clear", "청명", "CLEAR", floatArrayOf(
+        1.02f, -0.01f, -0.01f, 0f, -3f,
+        -0.01f, 1.04f, 0f, 0f, 0f,
+        0f, 0.01f, 1.06f, 0f, 2f,
+        0f, 0f, 0f, 1f, 0f,
+    ), null),
+    Fade("fade", "바램", "FADE", floatArrayOf(
+        0.71f, 0.1f, 0.04f, 0f, 24f,
+        0.04f, 0.75f, 0.06f, 0f, 22f,
+        0.04f, 0.1f, 0.65f, 0f, 26f,
+        0f, 0f, 0f, 1f, 0f,
+    ), FilmTexture(vignetteAlpha = 0f, grainAlpha = 0.12f)),
+    Natural("natural", "내추럴", "NATURAL", floatArrayOf(
+        0.999f, 0.029f, 0.003f, 0f, -2.56f,
+        0.009f, 1.008f, 0.003f, 0f, -2.56f,
+        0.009f, 0.029f, 0.971f, 0f, -2.56f,
+        0f, 0f, 0f, 1f, 0f,
+    ), null),
     Test("test", "테스트 필름", "TEST FILM", floatArrayOf(
         .92f, .03f, .02f, 0f, 10f,
         .02f, .90f, .02f, 0f, 9f,
@@ -43,6 +72,8 @@ enum class Film(val id: String, val label: String, val monoName: String, val mat
     ), null);
 
     companion object {
+        val available: List<Film> = listOf(None, Vintage, Monochrome, Warm, Clear, Fade, Natural)
+
         /** Unknown or retired ids fall back to no film instead of failing. */
         fun fromId(id: String?): Film = entries.firstOrNull { it.id == id } ?: None
     }
