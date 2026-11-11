@@ -3,21 +3,103 @@ import AVFoundation
 import MetalKit
 import DamharuShared
 
+private final class AppearanceModel: ObservableObject {
+    let state: AppearanceState
+    @Published var lightMode: Bool
+    init() {
+        let light = UserDefaults.standard.bool(forKey: "lightMode")
+        lightMode = light
+        state = AppearanceState(initialLightMode: light)
+        state.onChange = { [weak self] enabled in
+            self?.lightMode = enabled.boolValue
+            UserDefaults.standard.set(enabled.boolValue, forKey: "lightMode")
+        }
+    }
+}
+
 @main
 struct DamharuApp: App {
-    // The app uses one fixed dark palette, so system chrome (status bar, keyboard) follows it.
-    var body: some Scene { WindowGroup { DiaryRoot().ignoresSafeArea().preferredColorScheme(.dark) } }
+    @StateObject private var appearance = AppearanceModel()
+    @State private var tabsVisible = true
+    @State private var startupVisible = true
+    @State private var startup = StartupTransition()
+    private var canvas: Color {
+        appearance.lightMode ? Color(red: 245.0 / 255, green: 241.0 / 255, blue: 232.0 / 255) : .black
+    }
+    var body: some Scene {
+        WindowGroup {
+            ZStack {
+                TabView {
+                    DiaryRoot(appearance: appearance.state, startup: startup, onTabsVisible: { tabsVisible = $0 })
+                        .ignoresSafeArea(edges: .top)
+                        .background(canvas.ignoresSafeArea())
+                        .tabItem { Label("기록", systemImage: "book.closed") }
+                        .toolbar(tabsVisible ? .visible : .hidden, for: .tabBar)
+                    FilmShelfRoot(appearance: appearance.state)
+                        .ignoresSafeArea(edges: .top)
+                        .background(canvas.ignoresSafeArea())
+                        .tabItem { Label("필름", systemImage: "film") }
+                    SettingsRoot(appearance: appearance.state)
+                        .ignoresSafeArea(edges: .top)
+                        .background(canvas.ignoresSafeArea())
+                        .tabItem { Label("설정", systemImage: "gearshape") }
+                }
+                // Lay out the native bar once, under the opaque splash. Never insert it after landing.
+                .tint(Color(red: 0.85, green: 0.52, blue: 0.32))
+                .allowsHitTesting(!startupVisible)
+                .accessibilityHidden(startupVisible)
+                if startupVisible {
+                    StartupRoot(startup: startup) { startupVisible = false }
+                        .ignoresSafeArea()
+                }
+            }
+            .preferredColorScheme(appearance.lightMode ? .light : .dark)
+        }
+    }
+}
+
+private struct StartupRoot: UIViewControllerRepresentable {
+    let startup: StartupTransition
+    let onFinished: () -> Void
+    func makeUIViewController(context: Context) -> UIViewController {
+        var holdMillis: Int64 = 650
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let index = args.firstIndex(of: "--splash-hold-ms"), index + 1 < args.count,
+           let value = Int64(args[index + 1]) { holdMillis = min(10000, max(650, value)) }
+        #endif
+        let controller = MainViewControllerKt.SplashViewController(startup: startup, holdMillis: holdMillis) {
+            DispatchQueue.main.async { onFinished() }
+        }
+        controller.view.accessibilityViewIsModal = true
+        return controller
+    }
+    func updateUIViewController(_ controller: UIViewController, context: Context) {}
+}
+
+private struct SettingsRoot: UIViewControllerRepresentable {
+    let appearance: AppearanceState
+    func makeUIViewController(context: Context) -> UIViewController {
+        MainViewControllerKt.SettingsViewController(appearance: appearance)
+    }
+    func updateUIViewController(_ controller: UIViewController, context: Context) {}
 }
 
 private struct DiaryRoot: UIViewControllerRepresentable {
-    func makeCoordinator() -> PhotoCoordinator { PhotoCoordinator() }
+    let appearance: AppearanceState
+    let startup: StartupTransition
+    let onTabsVisible: (Bool) -> Void
+    func makeCoordinator() -> PhotoCoordinator { PhotoCoordinator(appearance: appearance) }
     func makeUIViewController(context: Context) -> UIViewController {
         var date = ""
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         if let index = args.firstIndex(of: "--date"), index + 1 < args.count { date = args[index + 1] }
         #endif
-        let controller = MainViewControllerKt.MainViewController(photoSource: context.coordinator, dateOverride: date)
+        let controller = MainViewControllerKt.MainViewController(photoSource: context.coordinator, dateOverride: date,
+            appearance: appearance, startup: startup, onTabsVisible: { visible in
+                DispatchQueue.main.async { onTabsVisible(visible.boolValue) }
+            })
         context.coordinator.host = controller
         return controller
     }
@@ -34,7 +116,9 @@ private final class PhotoCoordinator: NSObject, PhotoSource {
     private let queue = DispatchQueue(label: "damharu.photo-capture", qos: .userInitiated)
     private let temp = FileManager.default.temporaryDirectory.appendingPathComponent("damharu-captures", isDirectory: true)
 
-    override init() {
+    private let appearance: AppearanceState
+    init(appearance: AppearanceState) {
+        self.appearance = appearance
         super.init()
         try? FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         // Captures are never persisted references; remove abandoned ones on next launch.
@@ -63,7 +147,7 @@ private final class PhotoCoordinator: NSObject, PhotoSource {
         guard var presenter = host else { finish(nil, nil, "화면을 열 수 없어요. 다시 시도해 주세요."); return }
         while let next = presenter.presentedViewController { presenter = next }
         // The capture stays unfiltered here; the shared store bakes the film in when it saves.
-        let camera = NativeCameraController { [weak self] image, film in
+        let camera = NativeCameraController(appearance: appearance) { [weak self] image, film in
             guard let self else { return }
             guard let image else { self.finish(nil, nil, nil); return }
             self.capturedTime = self.camera?.timestamp
@@ -136,11 +220,14 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
         return false
         #endif
     }
-    init(completion: @escaping (UIImage?, Film) -> Void) {
+    private let appearance: AppearanceState
+    init(appearance: AppearanceState, completion: @escaping (UIImage?, Film) -> Void) {
+        self.appearance = appearance
         self.completion = completion
         super.init(nibName: nil, bundle: nil)
         // The calendar keeps rendering underneath, so closing without a transition reveals it instantly.
         modalPresentationStyle = .overFullScreen
+        overrideUserInterfaceStyle = appearance.lightMode ? .light : .dark
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .portrait }
@@ -154,7 +241,7 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
             if !self.state.ready { self.state.ready = true }
         }
         preview.onFailure = { [weak self] in self?.report("카메라 미리보기를 표시하지 못했어요. 닫고 다시 시도해 주세요.") }
-        let controls = MainViewControllerKt.CameraViewController(state: state, actions: self, preview: preview)
+        let controls = MainViewControllerKt.CameraViewController(state: state, actions: self, preview: preview, appearance: appearance)
         addChild(controls); view.addSubview(controls.view); controls.view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([controls.view.leadingAnchor.constraint(equalTo: view.leadingAnchor), controls.view.trailingAnchor.constraint(equalTo: view.trailingAnchor), controls.view.topAnchor.constraint(equalTo: view.topAnchor), controls.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)])
         controls.didMove(toParent: self)
@@ -474,4 +561,12 @@ private final class CameraMetalPreview: MTKView, MTKViewDelegate {
         }
         if shouldDraw { scheduleDraw() }
     }
+}
+
+private struct FilmShelfRoot: UIViewControllerRepresentable {
+    let appearance: AppearanceState
+    func makeUIViewController(context: Context) -> UIViewController {
+        MainViewControllerKt.FilmShelfViewController(appearance: appearance)
+    }
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 }

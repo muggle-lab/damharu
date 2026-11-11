@@ -1,18 +1,17 @@
 package com.mugglelab.damharu.home
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
+import androidx.compose.foundation.lazy.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -94,31 +93,49 @@ fun HomeScreen(
     onTodayBounds: (Rect) -> Unit = {},
     onCaptureBounds: (Rect) -> Unit = {},
     demoControls: @Composable () -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val colors = LocalDiaryColors.current
     val cells = remember(month) { month.cells() }
-    Box(modifier.background(colors.background).safeDrawingPadding()) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp)) {
-                Spacer(Modifier.height(28.dp))
-                BasicText("담 하 루", style = DiaryTextStyle.copy(color = colors.muted, fontSize = 10.sp, letterSpacing = 5.sp))
-                Spacer(Modifier.height(16.dp))
-                BasicText("${month.month}월, 담아둔 하루", style = DiaryTextStyle.copy(color = colors.ink, fontSize = 28.sp, lineHeight = 38.sp))
-                Spacer(Modifier.height(8.dp))
-                BasicText("지나간 날들이 여기 모여 있어요.", style = DiaryTextStyle.copy(color = colors.muted, fontSize = 12.sp))
+    LaunchedEffect(month, arrivingDate) {
+        if (arrivingDate != null) {
+            val target = 1 + cells.indexOf(today).coerceAtLeast(0) / 7
+            // Scroll before reporting a landing target; the fixed capture group stays below the list.
+            listState.scrollToItem(0)
+            withFrameNanos { }
+            run {
+                val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target }
+                if (item == null) listState.scrollToItem(target)
+                else {
+                    val overflow = item.offset + item.size - listState.layoutInfo.viewportEndOffset
+                    if (overflow > 0) listState.scrollBy(overflow.toFloat())
+                }
             }
-            Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 22.dp, top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                MonthArrow(previous = true, enabled = month.canGoBack) { onMonthChange(month.shiftedBy(-1)) }
-                // VoiceOver/TalkBack read the full month name; the visible label stays film-edge style.
-                DiaryMono(month.monoLabel, Modifier.testTag("month-title").semantics { contentDescription = month.label }, color = colors.ink)
-                MonthArrow(previous = false, enabled = month.canGoForward) { onMonthChange(month.shiftedBy(1)) }
-                Hairline(Modifier.weight(1f))
+        }
+    }
+    Column(modifier.background(colors.background).safeDrawingPadding()) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("home-calendar"), state = listState,
+            contentPadding = PaddingValues(bottom = 16.dp)) {
+            item(key = "header") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp)) {
+                    Spacer(Modifier.height(28.dp))
+                    BasicText("담 하 루", style = DiaryTextStyle.copy(color = colors.muted, fontSize = 10.sp, letterSpacing = 5.sp))
+                    Spacer(Modifier.height(16.dp))
+                    BasicText("${month.month}월, 담아둔 하루", style = DiaryTextStyle.copy(color = colors.ink, fontSize = 28.sp, lineHeight = 38.sp))
+                    Spacer(Modifier.height(8.dp))
+                    BasicText("지나간 날들이 여기 모여 있어요.", style = DiaryTextStyle.copy(color = colors.muted, fontSize = 12.sp))
+                }
+                Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 22.dp, top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    MonthArrow(previous = true, enabled = month.canGoBack) { onMonthChange(month.shiftedBy(-1)) }
+                    DiaryMono(month.monoLabel, Modifier.testTag("month-title").semantics { contentDescription = month.label }, color = colors.ink)
+                    MonthArrow(previous = false, enabled = month.canGoForward) { onMonthChange(month.shiftedBy(1)) }
+                }
+                Spacer(Modifier.height(12.dp))
             }
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val sidePadding = if (maxWidth < 360.dp) 6.dp else 12.dp
-                Column(Modifier.padding(horizontal = sidePadding)) {
-                    cells.chunked(7).forEach { week ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            itemsIndexed(cells.chunked(7), key = { i, _ -> "week-$month-$i" }) { _, week ->
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val sidePadding = if (maxWidth < 360.dp) 6.dp else 12.dp
+                        Row(Modifier.padding(horizontal = sidePadding).padding(bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             week.forEach { date ->
                                 if (date == null) Spacer(Modifier.weight(1f).heightIn(min = 48.dp).aspectRatio(1f))
                                 else {
@@ -128,15 +145,11 @@ fun HomeScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(2.dp))
                     }
                 }
-            }
-            Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) { demoControls() }
-            // The calendar scrolls above the fixed camera deck.
-            Spacer(Modifier.height(132.dp))
+            item(key = "status") { Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) { demoControls() } }
         }
-        CameraDeck(today, Modifier.align(Alignment.BottomCenter), onCaptureBounds, onToday = { onMonthChange(CalendarMonth.from(today)) }) { onAction(HomeAction.AddRecord(today)) }
+        CameraDeck(today, Modifier, onCaptureBounds, onToday = { onMonthChange(CalendarMonth.from(today)) }) { onAction(HomeAction.AddRecord(today)) }
     }
 }
 
@@ -150,7 +163,7 @@ private fun DayCell(date: LocalDate, today: LocalDate, entry: DiaryEntry?, enabl
         (if (entry != null) ", 기록 보기" else if (date > today) ", 미래 날짜" else if (missed) ", 지나간 날" else ", 기록 남기기")
     Box(
         modifier.heightIn(min = 48.dp).aspectRatio(1f).clip(shape).testTag("day-$date")
-            .then(if (missed) Modifier.background(Color(0xFF0A0908)) else Modifier)
+            .then(if (missed) Modifier.background(colors.panel.copy(alpha = .5f)) else Modifier)
             .semantics(mergeDescendants = true) { contentDescription = description }
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
     ) {
@@ -175,10 +188,10 @@ private fun DayCell(date: LocalDate, today: LocalDate, entry: DiaryEntry?, enabl
             date.day.toString(), Modifier.align(Alignment.BottomStart).padding(start = 5.dp, bottom = 3.dp),
             style = DiaryMonoStyle.copy(
                 color = when {
-                    entry != null && !arriving -> colors.ink.copy(alpha = .92f)
+                    entry != null && !arriving -> Color(0xFFEDE8DD).copy(alpha = .92f)
                     date == today -> colors.ink
-                    date > today -> Color(0xFF2A2824)
-                    else -> Color(0xFF35322C)
+                    date > today -> colors.faint.copy(alpha = .55f)
+                    else -> colors.faint
                 },
                 fontSize = 9.sp, letterSpacing = 0.sp,
             ),

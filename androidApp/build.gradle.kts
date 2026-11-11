@@ -26,6 +26,7 @@ dependencies {
     implementation(libs.compose.runtime)
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
+    implementation("androidx.compose.material3:material3:1.4.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation(libs.datetime)
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

@@ -3,6 +3,7 @@ package com.mugglelab.damharu
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
@@ -43,18 +44,27 @@ import com.mugglelab.damharu.camera.cameraPreviewRect
 import com.mugglelab.damharu.data.*
 import com.mugglelab.damharu.home.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.*
 import kotlin.math.roundToInt
 
 /** Home → camera → saved. A capture is stored immediately; there is no picker, editor or date choice. */
 @Composable
-fun App(today: LocalDate, photoSource: PhotoSource) {
+fun App(
+    today: LocalDate, photoSource: PhotoSource, appearance: AppearanceState,
+    onTabsVisible: (Boolean) -> Unit = {},
+    captureViewport: () -> CaptureViewport? = { null },
+    splashHoldMillis: Long = 650,
+    startup: StartupTransition? = null,
+    bottomBar: (@Composable (DiaryTab, (DiaryTab) -> Unit) -> Unit)? = null,
+) {
+    var selectedTab by rememberSaveable { mutableStateOf(DiaryTab.Home) }
     val store = remember { DiaryStore() }
     val scope = rememberCoroutineScope()
+    val homeScroll = rememberLazyListState()
     var records by remember { mutableStateOf<List<Record>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -64,12 +74,13 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
     var month by rememberSaveable { mutableStateOf(today.month.number) }
     var selected by rememberSaveable { mutableStateOf(today.toString()) }
     var route by rememberSaveable { mutableStateOf("home") }
-    var splashVisible by rememberSaveable { mutableStateOf(route == "home") }
+    var localSplashVisible by rememberSaveable { mutableStateOf(route == "home") }
+    val splashVisible = startup?.visible ?: localSplashVisible
     var captureBounds by remember { mutableStateOf<Rect?>(null) }
     var memo by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmation by remember { mutableStateOf<String?>(null) }
     var requestId by remember { mutableIntStateOf(0) }
-    // A fresh capture is shown at once and, when saved, shrinks into today's calendar cell.
+    // A fresh capture is shown at once and, when saved, shrinks into today's photo in the active view.
     var flight by remember { mutableStateOf<CaptureFlight?>(null) }
     var todayBounds by remember { mutableStateOf<Rect?>(null) }
     fun load() { scope.launch {
@@ -83,7 +94,8 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
     fun save(capture: String, film: Film, timestamp: String?) { scope.launch {
         busy = true
         year = today.year; month = today.month.number; selected = today.toString(); memo = null; route = "home"
-        flight = CaptureFlight(capture, film, timestamp = timestamp)
+        todayBounds = null
+        flight = CaptureFlight(capture, film, timestamp = timestamp, viewport = captureViewport())
         try {
             records = withContext(Dispatchers.Default) { store.save(records, today, capture, film, timestamp) }
             flight = flight?.copy(saved = true) // The temporary capture stays until the flight has landed.
@@ -112,113 +124,131 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
         else { memo = null; route = "home" }
     }
     PlatformBackHandler(route != "home" && !busy) { closeScreen() }
-    DiaryTheme {
-        val colors = LocalDiaryColors.current
-        val current = records.find { it.date == selected }
-        if (route == "home") Box(Modifier.fillMaxSize()) {
-            HomeScreen(today, CalendarMonth(year, month), records.associate { LocalDate.parse(it.date) to DiaryEntry(LocalDate.parse(it.date), imagePath = store.path(it.thumbnail)) },
-                { year = it.year; month = it.month }, { action ->
-                    if (loaded && !busy && flight == null && !splashVisible) when (action) {
-                        is HomeAction.AddRecord -> if (canRecord(action.date, today)) requestCapture()
-                        is HomeAction.OpenRecord -> { selected = action.date.toString(); memo = null; route = "detail" }
-                    }
-                }, Modifier.fillMaxSize().then(if (splashVisible) Modifier.clearAndSetSemantics {} else Modifier),
-                arrivingDate = if (flight != null) today else null, onTodayBounds = { todayBounds = it },
-                onCaptureBounds = { captureBounds = it }, demoControls = {
-                    if (!loaded && !busy) DiaryButton("기록 다시 불러오기", { load() })
-                })
-            flight?.let { active -> CaptureFlightOverlay(active, todayBounds, onReady = { photoSource.closeCamera() }) { flight = null; runCatching { PhotoFiles.delete(active.path) } } }
-            if (splashVisible) SplashOverlay(captureBounds, ready = loaded || error != null) { splashVisible = false }
-        } else if (current == null) {
-            Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                DiaryText("기록이 없어요."); DiaryButton("홈으로", { route = "home" })
-            }
-        } else {
-            val date = LocalDate.parse(current.date)
-            Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding().imePadding()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(48.dp).clickable(role = Role.Button) { closeScreen() }.testTag("close-screen").semantics { contentDescription = "닫기" }, contentAlignment = Alignment.Center) {
-                        Canvas(Modifier.size(16.dp)) {
-                            val stroke = 1.6.dp.toPx()
-                            val tip = Offset(size.width * .28f, center.y)
-                            drawLine(colors.ink, Offset(size.width * .72f, stroke / 2), tip, stroke, StrokeCap.Round)
-                            drawLine(colors.ink, tip, Offset(size.width * .72f, size.height - stroke / 2), stroke, StrokeCap.Round)
+    PlatformBackHandler(selectedTab != DiaryTab.Home) { selectedTab = DiaryTab.Home }
+    // Keep final tab geometry under the splash; the overlay owns visibility and interaction.
+    val tabsVisible = route == "home"
+    SideEffect { startup?.ready = loaded || error != null }
+    LaunchedEffect(tabsVisible) { onTabsVisible(tabsVisible) }
+    DiaryTheme(appearance.lightMode) {
+        Box(Modifier.fillMaxSize()) {
+            val colors = LocalDiaryColors.current
+            val current = records.find { it.date == selected }
+            val tabPadding = if (bottomBar != null && route == "home") 80.dp else 0.dp
+            if (selectedTab == DiaryTab.Films) FilmShelfScreen(Modifier.padding(bottom = tabPadding))
+            else if (selectedTab == DiaryTab.Settings) SettingsScreen(appearance, Modifier.padding(bottom = tabPadding))
+            else if (route == "home") Box(Modifier.fillMaxSize()) {
+                HomeScreen(today, CalendarMonth(year, month), records.associate { LocalDate.parse(it.date) to DiaryEntry(LocalDate.parse(it.date), imagePath = store.path(it.thumbnail), photoPath = store.path(it.image), memo = it.memo, film = it.film) },
+                    { if (flight == null && !splashVisible) {
+                        year = it.year; month = it.month; todayBounds = null
+                        homeScroll.requestScrollToItem(0)
+                    } }, { action ->
+                        if (loaded && !busy && flight == null && !splashVisible) when (action) {
+                            is HomeAction.AddRecord -> if (canRecord(action.date, today)) requestCapture()
+                            is HomeAction.OpenRecord -> { selected = action.date.toString(); memo = null; route = "detail" }
                         }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    if (memo == null) {
-                        // Only today's photo can be retaken; past days keep the moment they were taken.
-                        if (canRecord(date, today)) TextAction("사진 변경", colors.soft, "change-photo") { requestCapture() }
-                        TextAction("삭제", colors.danger, "delete-record", fontSize = 16.sp) { confirmation = "delete" }
-                    }
+                    }, Modifier.fillMaxSize().padding(bottom = tabPadding).then(if (splashVisible) Modifier.clearAndSetSemantics {} else Modifier),
+                    listState = homeScroll,
+                    arrivingDate = if (flight != null) today else null, onTodayBounds = { todayBounds = it },
+                    onCaptureBounds = { captureBounds = it; startup?.target = it }, demoControls = {
+                        if (!loaded && !busy) DiaryButton("기록 다시 불러오기", { load() })
+                    })
+                flight?.let { active -> CaptureFlightOverlay(active, todayBounds, onReady = { photoSource.closeCamera() }) { flight = null; runCatching { PhotoFiles.delete(active.path) } } }
+            } else if (current == null) {
+                Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    DiaryText("기록이 없어요."); DiaryButton("홈으로", { route = "home" })
                 }
-                if (memo == null) {
-                    Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
-                        LocalPhoto(store.path(current.image), Modifier.aspectRatio(.75f).clip(RoundedCornerShape(3.dp)))
-                    }
-                }
-                Column(Modifier.fillMaxWidth().then(if (memo != null) Modifier.weight(1f).verticalScroll(rememberScrollState()) else Modifier).padding(horizontal = 20.dp)) {
-                    Spacer(Modifier.height(18.dp))
-                    // The film is part of how the day was taken, so it sits with the date like an edge print.
-                    DiaryMono(listOf(date.monoLabel, Film.fromId(current.film).monoName).filter { it.isNotEmpty() }.joinToString(" · "), Modifier.testTag("record-meta"))
-                    Spacer(Modifier.height(8.dp))
-                    BasicText(date.koreanLabel, style = DiaryTextStyle.copy(color = colors.ink, fontSize = 22.sp, lineHeight = 30.sp))
-                    if (memo == null) {
-                        BasicText(current.memo.ifEmpty { "오늘을 한 줄로 남겨보세요" },
-                            Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(role = Role.Button, onClickLabel = "한 줄 수정") { memo = current.memo }
-                                .padding(top = 10.dp, bottom = 14.dp).testTag("edit-memo"),
-                            style = DiaryTextStyle.copy(color = if (current.memo.isEmpty()) colors.faint else colors.soft, fontSize = 14.sp, lineHeight = 24.sp))
-
-                    } else {
-                        Spacer(Modifier.height(10.dp))
-                        MemoInput(memo.orEmpty(), { memo = it })
-                        Spacer(Modifier.height(18.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            DiaryButton("취소", { memo = null }, Modifier.weight(1f))
-                            DiaryButton("한 줄 저장", { scope.launch {
-                                busy = true
-                                try { records = withContext(Dispatchers.Default) { store.memo(records, selected, memo.orEmpty()) }; memo = null }
-                                catch (_: Exception) { error = "메모를 저장하지 못했어요. 다시 시도해 주세요." }
-                                finally { busy = false }
-                            } }, Modifier.weight(1f).testTag("save-memo"), primary = true)
-                        }
-                    }
-                }
-            }
-        }
-        confirmation?.let { kind ->
-            val message = when (kind) {
-                "delete" -> if (selected == today.toString()) "이 날의 기록을 삭제할까요? 사진과 메모가 기기에서 삭제됩니다."
-                    else "이 날의 기록을 삭제할까요? 사진과 메모가 기기에서 삭제되고, 지나간 날은 다시 채울 수 없어요."
-                "replace" -> "오늘의 사진을 다시 찍을까요? 촬영하면 바로 교체되고 한 줄 메모는 유지됩니다."
-                else -> "저장하지 않은 변경을 닫을까요?"
-            }
-            DiaryDialog(message, { confirmation = null }) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DiaryButton("취소", { confirmation = null }, Modifier.weight(1f), shape = DiaryDialogShape)
-                    DiaryButton("확인", {
-                        confirmation = null
-                        when (kind) {
-                            "replace" -> capture()
-                            "memo-discard" -> { memo = null; route = "home" }
-                            "delete" -> scope.launch {
-                                busy = true
-                                try { records = withContext(Dispatchers.Default) { store.delete(records, selected) }; route = "home" }
-                                catch (_: Exception) { error = "삭제하지 못했어요. 다시 시도해 주세요." }
-                                finally { busy = false }
+            } else {
+                val date = LocalDate.parse(current.date)
+                Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding().imePadding()) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(48.dp).clickable(role = Role.Button) { closeScreen() }.testTag("close-screen").semantics { contentDescription = "닫기" }, contentAlignment = Alignment.Center) {
+                            Canvas(Modifier.size(16.dp)) {
+                                val stroke = 1.6.dp.toPx()
+                                val tip = Offset(size.width * .28f, center.y)
+                                drawLine(colors.ink, Offset(size.width * .72f, stroke / 2), tip, stroke, StrokeCap.Round)
+                                drawLine(colors.ink, tip, Offset(size.width * .72f, size.height - stroke / 2), stroke, StrokeCap.Round)
                             }
                         }
-                    }, Modifier.weight(1f).testTag("confirm-action"), primary = true, shape = DiaryDialogShape)
+                        Spacer(Modifier.weight(1f))
+                        if (memo == null) {
+                            // Only today's photo can be retaken; past days keep the moment they were taken.
+                            if (canRecord(date, today)) TextAction("사진 변경", colors.soft, "change-photo") { requestCapture() }
+                            TextAction("삭제", colors.danger, "delete-record", fontSize = 16.sp) { confirmation = "delete" }
+                        }
+                    }
+                    if (memo == null) {
+                        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
+                            LocalPhoto(store.path(current.image), Modifier.aspectRatio(.75f).clip(RoundedCornerShape(3.dp)))
+                        }
+                    }
+                    Column(Modifier.fillMaxWidth().then(if (memo != null) Modifier.weight(1f).verticalScroll(rememberScrollState()) else Modifier).padding(horizontal = 20.dp)) {
+                        Spacer(Modifier.height(18.dp))
+                        // The film is part of how the day was taken, so it sits with the date like an edge print.
+                        DiaryMono(listOf(date.monoLabel, Film.fromId(current.film).monoName).filter { it.isNotEmpty() }.joinToString(" · "), Modifier.testTag("record-meta"))
+                        Spacer(Modifier.height(8.dp))
+                        BasicText(date.koreanLabel, style = DiaryTextStyle.copy(color = colors.ink, fontSize = 22.sp, lineHeight = 30.sp))
+                        if (memo == null) {
+                            BasicText(current.memo.ifEmpty { "오늘을 한 줄로 남겨보세요" },
+                                Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(role = Role.Button, onClickLabel = "한 줄 수정") { memo = current.memo }
+                                    .padding(top = 10.dp, bottom = 14.dp).testTag("edit-memo"),
+                                style = DiaryTextStyle.copy(color = if (current.memo.isEmpty()) colors.faint else colors.soft, fontSize = 14.sp, lineHeight = 24.sp))
+                        } else {
+                            Spacer(Modifier.height(10.dp))
+                            MemoInput(memo.orEmpty(), { memo = it })
+                            Spacer(Modifier.height(18.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DiaryButton("취소", { memo = null }, Modifier.weight(1f))
+                                DiaryButton("한 줄 저장", { scope.launch {
+                                    busy = true
+                                    try { records = withContext(Dispatchers.Default) { store.memo(records, selected, memo.orEmpty()) }; memo = null }
+                                    catch (_: Exception) { error = "메모를 저장하지 못했어요. 다시 시도해 주세요." }
+                                    finally { busy = false }
+                                } }, Modifier.weight(1f).testTag("save-memo"), primary = true)
+                            }
+                        }
+                    }
                 }
             }
+            if (bottomBar != null && tabsVisible) Box(Modifier.align(Alignment.BottomCenter).then(if (splashVisible) Modifier.clearAndSetSemantics {} else Modifier)) {
+                bottomBar(selectedTab) { if (!busy && !capturing && flight == null && !splashVisible) selectedTab = it }
+            }
+            if (startup == null && splashVisible) SplashOverlay(captureBounds, ready = loaded || error != null, holdMillis = splashHoldMillis) { localSplashVisible = false }
+            confirmation?.let { kind ->
+                val message = when (kind) {
+                    "delete" -> if (selected == today.toString()) "이 날의 기록을 삭제할까요? 사진과 메모가 기기에서 삭제됩니다."
+                        else "이 날의 기록을 삭제할까요? 사진과 메모가 기기에서 삭제되고, 지나간 날은 다시 채울 수 없어요."
+                    "replace" -> "오늘의 사진을 다시 찍을까요? 촬영하면 바로 교체되고 한 줄 메모는 유지됩니다."
+                    else -> "저장하지 않은 변경을 닫을까요?"
+                }
+                DiaryDialog(message, { confirmation = null }) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DiaryButton("취소", { confirmation = null }, Modifier.weight(1f), shape = DiaryDialogShape)
+                        DiaryButton("확인", {
+                            confirmation = null
+                            when (kind) {
+                                "replace" -> capture()
+                                "memo-discard" -> { memo = null; route = "home" }
+                                "delete" -> scope.launch {
+                                    busy = true
+                                    try { records = withContext(Dispatchers.Default) { store.delete(records, selected) }; route = "home" }
+                                    catch (_: Exception) { error = "삭제하지 못했어요. 다시 시도해 주세요." }
+                                    finally { busy = false }
+                                }
+                            }
+                        }, Modifier.weight(1f).testTag("confirm-action"), primary = true, shape = DiaryDialogShape)
+                    }
+                }
+            }
+            if (!splashVisible) error?.let { DiaryDialog(it, { error = null }) { DiaryButton("확인", { error = null }, Modifier.fillMaxWidth(), shape = DiaryDialogShape) } }
+            // While a capture is saving, the photo itself is on screen; a wait dialog would only cover it.
+            if (busy && flight == null && !splashVisible) DiaryDialog("잠시만 기다려 주세요…", {}) {}
         }
-        if (!splashVisible) error?.let { DiaryDialog(it, { error = null }) { DiaryButton("확인", { error = null }, Modifier.fillMaxWidth(), shape = DiaryDialogShape) } }
-        // While a capture is saving, the photo itself is on screen; a wait dialog would only cover it.
-        if (busy && flight == null && !splashVisible) DiaryDialog("잠시만 기다려 주세요…", {}) {}
     }
 }
 
-private data class CaptureFlight(val path: String, val film: Film, val timestamp: String? = null, val saved: Boolean = false)
+/** Full camera window geometry, independent of the native tab bar's content safe area. */
+data class CaptureViewport(val width: Float, val height: Float, val safeTop: Float, val safeBottom: Float)
+private data class CaptureFlight(val path: String, val film: Film, val timestamp: String? = null, val saved: Boolean = false, val viewport: CaptureViewport? = null)
 
 /** The fresh capture leaves the camera and shrinks straight into today's cell. The overlay is prepared
  *  *under* the still-open camera at the exact viewfinder bounds; only when its pixels are decoded is the
@@ -243,18 +273,24 @@ private fun CaptureFlightOverlay(flight: CaptureFlight, target: Rect?, onReady: 
         }
         withFrameNanos { } // Let the decoded photo reach the screen before the camera above it goes away.
         ready()
-        // Without pixels or a laid-out cell there is nothing to fly; the calendar simply shows the new day.
-        if (bitmap != null && latestTarget != null) progress.animateTo(1f, tween(560, easing = FastOutSlowInEasing))
-        // Saving usually finishes mid-flight. If it has not, rest on the cell until its thumbnail exists.
-        val late = !latestFlight.saved
+        // Gallery/timeline may need to insert today's first record and scroll it into view.
+        // Wait for storage and a fresh layout instead of flying to a stale/offscreen calendar cell.
         snapshotFlow { latestFlight.saved }.first { it }
-        if (late) delay(220)
+        withTimeoutOrNull(1000) { snapshotFlow { latestTarget }.first { it != null } }
+        withFrameNanos { }
+        // Without pixels or a laid-out photo there is nothing to fly.
+        if (bitmap != null && latestTarget != null) progress.animateTo(1f, tween(560, easing = FastOutSlowInEasing))
         landed()
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val insets = WindowInsets.safeDrawing
-        val start = with(density) { cameraPreviewRect(maxWidth.toPx(), maxHeight.toPx(), insets.getTop(this).toFloat(), insets.getBottom(this).toFloat(), this.density) }
+        val start = with(density) {
+            val viewport = flight.viewport
+            if (viewport != null) cameraPreviewRect(viewport.width * this.density, viewport.height * this.density,
+                viewport.safeTop * this.density, viewport.safeBottom * this.density, this.density)
+            else cameraPreviewRect(maxWidth.toPx(), maxHeight.toPx(), insets.getTop(this).toFloat(), insets.getBottom(this).toFloat(), this.density)
+        }
         val end = target ?: start
         bitmap?.let {
             // The animated value is read only in the layout and draw phases, so a 60-120Hz flight never

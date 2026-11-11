@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.lifecycleScope
+import com.mugglelab.damharu.DiaryTheme
+import com.mugglelab.damharu.AppearanceState
 import com.mugglelab.damharu.App
 import com.mugglelab.damharu.data.Film
 import com.mugglelab.damharu.data.PhotoFiles
@@ -50,25 +52,35 @@ class MainActivity : ComponentActivity(), PhotoSource {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // The app uses one fixed dark palette, so system bar icons stay light regardless of the system theme.
-        enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
+        enableEdgeToEdge()
         PhotoFiles.initialize(applicationContext)
         // Unsaved captures have no persistent references and are safe to clean at startup.
         File(cacheDir, "captures").apply { mkdirs() }.listFiles()?.forEach { it.delete() }
         File(cacheDir, "camera").apply { mkdirs() }.listFiles()?.forEach { it.delete() }
+        val preferences = getSharedPreferences("appearance", MODE_PRIVATE)
+        val appearance = AppearanceState(preferences.getBoolean("lightMode", false)).apply {
+            onChange = { preferences.edit().putBoolean("lightMode", it).apply() }
+        }
         setContent {
+            val lightChrome = appearance.lightMode
+            SideEffect {
+                val style = if (lightChrome) SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                    else SystemBarStyle.dark(Color.TRANSPARENT)
+                enableEdgeToEdge(style, style)
+            }
             Box {
                 Box(if (showingCamera) Modifier.clearAndSetSemantics { } else Modifier) {
-                    App(Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date, this@MainActivity)
+                    App(Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date, this@MainActivity,
+                        appearance = appearance, bottomBar = { settings, select -> DiaryNavigationBar(settings, select) })
                 }
                 // After a shot the camera stays composed above the app until closeCamera(), so the photo can be
                 // prepared underneath and appear to leave the viewfinder without an in-between screen.
-                if (showingCamera) AndroidCamera(this@MainActivity) { file, film, timestamp ->
+                if (showingCamera) DiaryTheme(appearance.lightMode) { AndroidCamera(this@MainActivity) { file, film, timestamp ->
                     capturedTime = timestamp
                     capturedFilm = film
                     if (file == null) finish(null, null)
                     else { cameraFile = file; receive(Uri.fromFile(file)) }
-                }
+                } }
             }
         }
     }

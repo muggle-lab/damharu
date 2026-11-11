@@ -34,6 +34,56 @@ class PhotoFlowTest {
         device.wait(Until.findObject(By.desc("오늘 한 장 촬영")), 8000)!!.click()
         device.wait(Until.findObject(By.text("확인")), 1500)?.click()
     }
+    @Test fun cameraFollowsLightAndDarkAppearance() {
+        val prefs = context.getSharedPreferences("appearance", android.content.Context.MODE_PRIVATE)
+        val original = prefs.getBoolean("lightMode", false)
+        device.executeShellCommand("pm grant ${context.packageName} android.permission.CAMERA")
+        try {
+            prefs.edit().putBoolean("lightMode", false).commit()
+            launch()
+            for (light in listOf(true, false)) {
+                tap("설정")
+                device.wait(Until.findObject(By.checkable(true)), 8000)!!.click()
+                tap("기록")
+                openCamera()
+                assertTrue(device.wait(Until.hasObject(By.desc("사진 촬영").enabled(true)), 15000))
+                val output = File(context.getExternalFilesDir(null), if (light) "camera-light.png" else "camera-dark.png")
+                assertTrue(device.takeScreenshot(output))
+                val bitmap = BitmapFactory.decodeFile(output.path)
+                val pixel = bitmap.getPixel(4, bitmap.height / 2)
+                bitmap.recycle()
+                for (channel in listOf(Color.red(pixel), Color.green(pixel), Color.blue(pixel))) {
+                    assertTrue("Unexpected camera background: $pixel", if (light) channel > 220 else channel < 20)
+                }
+                device.findObject(By.desc("촬영 닫기")).click()
+                assertTrue(device.wait(Until.hasObject(By.text("설정")), 8000))
+            }
+        } finally { prefs.edit().putBoolean("lightMode", original).commit() }
+    }
+
+    @Test fun tabsAndAppearanceSurviveActivityRecreation() {
+        val prefs = context.getSharedPreferences("appearance", android.content.Context.MODE_PRIVATE)
+        val original = prefs.getBoolean("lightMode", false)
+        try {
+            launch()
+            tap("설정")
+            val toggle = device.wait(Until.findObject(By.checkable(true)), 8000)!!
+            assertEquals(original, toggle.isChecked)
+            toggle.click(); device.waitForIdle()
+            assertEquals(!original, prefs.getBoolean("lightMode", false))
+            device.takeScreenshot(File(context.getExternalFilesDir(null), "settings-toggled.png"))
+            tap("기록")
+            assertTrue(device.wait(Until.hasObject(By.desc("오늘 한 장 촬영")), 8000))
+            launch()
+            tap("설정")
+            assertEquals(!original, device.wait(Until.findObject(By.checkable(true)), 8000)!!.isChecked)
+            device.pressBack()
+            assertTrue(device.wait(Until.hasObject(By.desc("오늘 한 장 촬영")), 8000))
+        } finally {
+            prefs.edit().putBoolean("lightMode", original).commit()
+        }
+    }
+
     @Test fun captureSavesImmediatelyThenMemoAndDelete() {
         device.executeShellCommand("pm grant ${context.packageName} android.permission.CAMERA")
         launch()
@@ -52,9 +102,9 @@ class PhotoFlowTest {
         val bounds = zoom.visibleBounds
         device.swipe(bounds.right - 20, bounds.centerY(), bounds.left + 20, bounds.centerY(), 20)
         device.findObject(By.descStartsWith("필름 선택")).click()
-        device.wait(Until.findObject(By.desc("테스트 필름")), 5000)!!.click()
+        device.wait(Until.findObject(By.desc("흑백")), 5000)!!.click()
         if (android.os.Build.VERSION.SDK_INT >= 33) InstrumentationRegistry.getInstrumentation().uiAutomation.clearCache()
-        assertTrue(hierarchy(), device.wait(Until.hasObject(By.desc("필름 선택, 테스트 필름")), 5000))
+        assertTrue(hierarchy(), device.wait(Until.hasObject(By.desc("필름 선택, 흑백")), 5000))
         device.takeScreenshot(File(context.getExternalFilesDir(null), "custom-camera.png"))
         device.findObject(By.desc("사진 촬영")).click()
         // No picker, editor or confirm step: the shutter saves and returns home.
@@ -63,7 +113,7 @@ class PhotoFlowTest {
         launch()
         device.wait(Until.findObject(By.descContains("오늘, 기록 보기")), 10000)!!.click()
         assertTrue("today's photo can be retaken", device.wait(Until.hasObject(By.text("사진 변경")), 8000))
-        assertTrue("the record remembers its film", device.hasObject(By.textContains("TEST FILM")))
+        assertTrue("the record remembers its film", device.hasObject(By.textContains("MONOCHROME")))
         tap("오늘을 한 줄로 남겨보세요")
         device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5000).text = "quiet afternoon"
         tap("한 줄 저장")
@@ -91,7 +141,7 @@ class PhotoFlowTest {
             val same = BitmapFactory.decodeFile(output.path)
             assertEquals(32, same.width); assertEquals(24, same.height); same.recycle()
             // A film is the same 4x5 matrix the preview uses, so the saved pixels must follow it.
-            val matrix = Film.Test.matrix!!
+            val matrix = Film.Monochrome.matrix!!
             PhotoFiles.render(source.path, output.path, matrix, null, 2048)
             val filmed = BitmapFactory.decodeFile(output.path).let { val p = it.getPixel(10, 10); it.recycle(); p }
             val rgb = intArrayOf(Color.red(input), Color.green(input), Color.blue(input))

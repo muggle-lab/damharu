@@ -15,7 +15,6 @@ import androidx.camera.view.PreviewView
 import androidx.compose.runtime.*
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
 import androidx.lifecycle.Observer
 import com.mugglelab.damharu.camera.CAMERA_PREVIEW_CORNER_DP
 import com.mugglelab.damharu.camera.CameraActions
@@ -44,17 +43,10 @@ fun AndroidCamera(activity: ComponentActivity, onComplete: (File?, Film, String?
     val adapter = remember { AndroidCameraAdapter(activity, preview, state) { file, film -> latestCompletion(file, film, state.capturedTime) } }
     DisposableEffect(adapter) {
         val oldOrientation = activity.requestedOrientation
-        val bars = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-        val lightStatus = bars.isAppearanceLightStatusBars
-        val lightNavigation = bars.isAppearanceLightNavigationBars
-        bars.isAppearanceLightStatusBars = false
-        bars.isAppearanceLightNavigationBars = false
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         adapter.start()
         onDispose {
             adapter.dispose(); activity.requestedOrientation = oldOrientation
-            bars.isAppearanceLightStatusBars = lightStatus
-            bars.isAppearanceLightNavigationBars = lightNavigation
         }
     }
     BackHandler { if (!state.busy) adapter.close() }

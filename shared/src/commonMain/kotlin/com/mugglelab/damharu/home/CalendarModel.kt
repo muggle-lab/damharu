@@ -50,7 +50,8 @@ val LocalDate.shortMonoLabel: String get() = "${month.number.twoDigits()}.${day.
 enum class SampleScene { Coffee, Walk, Book, Sunset }
 
 /** Temporary in-memory fixture; never represents a persisted user photo. */
-data class DiaryEntry(val date: LocalDate, val scene: SampleScene = SampleScene.Coffee, val imagePath: String? = null)
+data class DiaryEntry(val date: LocalDate, val scene: SampleScene = SampleScene.Coffee, val imagePath: String? = null,
+    val photoPath: String? = null, val memo: String = "", val film: String = "")
 
 fun sampleEntries(today: LocalDate): Map<LocalDate, DiaryEntry> =
     listOf(1, 2, 4, 5, 8, 9, 11, 13, 16, 20, 25, 32).mapIndexed { index, daysAgo ->

@@ -26,10 +26,17 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.roundToInt
 
+/** A native shell can host the splash above its tab bar while Compose lays out the home below. */
+class StartupTransition {
+    var visible by mutableStateOf(true)
+    var ready by mutableStateOf(false)
+    var target by mutableStateOf<Rect?>(null)
+}
+
 /** Composed over the already laid-out home. The real lens bounds include platform safe areas.
  * Only layout/layer phases read progress; the image is not decoded or recomposed every frame. */
 @Composable
-internal fun SplashOverlay(target: Rect?, ready: Boolean, onFinished: () -> Unit) {
+internal fun SplashOverlay(target: Rect?, ready: Boolean, holdMillis: Long = 650, onFinished: () -> Unit) {
     val progress = remember { Animatable(0f) }
     val finished by rememberUpdatedState(onFinished)
     val latestTarget by rememberUpdatedState(target)
@@ -37,7 +44,7 @@ internal fun SplashOverlay(target: Rect?, ready: Boolean, onFinished: () -> Unit
     val painter = painterResource(Res.drawable.splash_photo)
     LaunchedEffect(Unit) {
         withFrameNanos { }
-        delay(650)
+        delay(holdMillis)
         // A failed/slow disk read or missing layout must never trap the user on the splash.
         withTimeoutOrNull(2500) {
             snapshotFlow { latestReady && latestTarget != null }.first { it }
