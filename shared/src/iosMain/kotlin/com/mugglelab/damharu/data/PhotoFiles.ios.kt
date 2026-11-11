@@ -28,8 +28,8 @@ actual object PhotoFiles {
     actual fun exists(path: String) = NSFileManager.defaultManager.fileExistsAtPath(path)
     actual fun names(path: String): List<String> = NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, null)?.filterIsInstance<String>().orEmpty()
     actual fun bitmap(path: String): ImageBitmap = Image.makeFromEncoded(read(path)).toComposeImageBitmap()
-    /** Re-encoding through Skia also drops any metadata the source JPEG carried. Without matrix and texture it only resizes. */
-    actual fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int) {
+    /** Re-encoding through Skia also drops any metadata the source JPEG carried. Without matrix, texture and timestamp it only resizes. */
+    actual fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int, timestamp: String?) {
         Image.makeFromEncoded(read(source)).using { image ->
             val ratio = minOf(1f, maxSide.toFloat() / maxOf(image.width, image.height))
             Surface.makeRasterN32Premul(maxOf(1, (image.width * ratio).toInt()), maxOf(1, (image.height * ratio).toInt())).using { surface ->
@@ -43,6 +43,22 @@ actual object PhotoFiles {
                     }
                 }
                 if (texture != null) drawTexture(surface.canvas, surface.width.toFloat(), surface.height.toFloat(), texture)
+                if (timestamp != null) {
+                    val scale = surface.width / 366f
+                    requireNotNull(FontMgr.default.matchFamilyStyle("Menlo", FontStyle.NORMAL)).using { face ->
+                        Font(face, 24f * scale).using { font ->
+                            Paint().using { paint ->
+                                val advance = font.measureTextWidth("0") + scale
+                                val x = surface.width - 24f * scale - (advance * timestamp.length - scale)
+                                val y = surface.height - 30f * scale
+                                paint.color = Color.BLACK
+                                timestamp.forEachIndexed { index, c -> surface.canvas.drawString(c.toString(), x + index * advance, y + scale, font, paint) }
+                                paint.color = Color.makeRGB(240, 138, 60)
+                                timestamp.forEachIndexed { index, c -> surface.canvas.drawString(c.toString(), x + index * advance, y, font, paint) }
+                            }
+                        }
+                    }
+                }
                 surface.makeImageSnapshot().using { output ->
                     val data = output.encodeToData(EncodedImageFormat.JPEG, 94) ?: error("Cannot encode image")
                     data.using { write(destination, it.bytes) }

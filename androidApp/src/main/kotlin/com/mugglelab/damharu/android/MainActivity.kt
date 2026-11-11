@@ -35,6 +35,8 @@ import kotlin.time.Clock
 
 /** The in-app CameraX screen is the only photo input; there is no gallery or external camera path. */
 class MainActivity : ComponentActivity(), PhotoSource {
+    override var capturedTime: String? = null
+        private set
     private var showingCamera by mutableStateOf(false)
     private var completion: ((String?, String?, String?) -> Unit)? = null
     private var capturedFilm = Film.None
@@ -61,7 +63,8 @@ class MainActivity : ComponentActivity(), PhotoSource {
                 }
                 // After a shot the camera stays composed above the app until closeCamera(), so the photo can be
                 // prepared underneath and appear to leave the viewfinder without an in-between screen.
-                if (showingCamera) AndroidCamera(this@MainActivity) { file, film ->
+                if (showingCamera) AndroidCamera(this@MainActivity) { file, film, timestamp ->
+                    capturedTime = timestamp
                     capturedFilm = film
                     if (file == null) finish(null, null)
                     else { cameraFile = file; receive(Uri.fromFile(file)) }
@@ -72,6 +75,7 @@ class MainActivity : ComponentActivity(), PhotoSource {
     override fun capture(completion: (String?, String?, String?) -> Unit) {
         if (this.completion != null) { completion(null, null, "사진을 준비하는 중이에요."); return }
         this.completion = completion
+        capturedTime = null
         try {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) showingCamera = true
             else cameraPermission.launch(Manifest.permission.CAMERA)

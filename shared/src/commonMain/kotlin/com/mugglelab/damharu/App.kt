@@ -80,12 +80,12 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
     } }
     LaunchedEffect(Unit) { load() }
     DisposableEffect(Unit) { onDispose { requestId++ } }
-    fun save(capture: String, film: Film) { scope.launch {
+    fun save(capture: String, film: Film, timestamp: String?) { scope.launch {
         busy = true
         year = today.year; month = today.month.number; selected = today.toString(); memo = null; route = "home"
-        flight = CaptureFlight(capture, film)
+        flight = CaptureFlight(capture, film, timestamp = timestamp)
         try {
-            records = withContext(Dispatchers.Default) { store.save(records, today, capture, film) }
+            records = withContext(Dispatchers.Default) { store.save(records, today, capture, film, timestamp) }
             flight = flight?.copy(saved = true) // The temporary capture stays until the flight has landed.
         } catch (_: Exception) {
             flight = null; photoSource.closeCamera(); runCatching { PhotoFiles.delete(capture) }
@@ -101,7 +101,7 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
             else {
                 capturing = false
                 if (failure != null) error = failure
-                else if (path != null) save(path, Film.fromId(film)) // The shutter is the save button: no confirm step after capture.
+                else if (path != null) save(path, Film.fromId(film), photoSource.capturedTime) // The shutter is the save button: no confirm step after capture.
             }
         }
     }
@@ -218,7 +218,7 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
     }
 }
 
-private data class CaptureFlight(val path: String, val film: Film, val saved: Boolean = false)
+private data class CaptureFlight(val path: String, val film: Film, val timestamp: String? = null, val saved: Boolean = false)
 
 /** The fresh capture leaves the camera and shrinks straight into today's cell. The overlay is prepared
  *  *under* the still-open camera at the exact viewfinder bounds; only when its pixels are decoded is the
@@ -233,7 +233,14 @@ private fun CaptureFlightOverlay(flight: CaptureFlight, target: Rect?, onReady: 
     val latestFlight by rememberUpdatedState(flight)
     var bitmap by remember(flight.path) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(flight.path) {
-        bitmap = withContext(Dispatchers.Default) { runCatching { PhotoFiles.bitmap(flight.path) }.getOrNull() }
+        bitmap = withContext(Dispatchers.Default) {
+            val previewPath = flight.path + ".preview.jpg"
+            try {
+                PhotoFiles.render(flight.path, previewPath, flight.film.matrix, flight.film.texture, 2048, flight.timestamp)
+                PhotoFiles.bitmap(previewPath)
+            } catch (_: Exception) { null }
+            finally { runCatching { PhotoFiles.delete(previewPath) } }
+        }
         withFrameNanos { } // Let the decoded photo reach the screen before the camera above it goes away.
         ready()
         // Without pixels or a laid-out cell there is nothing to fly; the calendar simply shows the new day.
@@ -262,10 +269,10 @@ private fun CaptureFlightOverlay(flight: CaptureFlight, target: Rect?, onReady: 
                     }
                 }
                 .graphicsLayer { clip = true; shape = RoundedCornerShape(lerp(CAMERA_PREVIEW_CORNER_DP.toFloat(), 2f, progress.value).dp) }
-                .filmTexture(flight.film.texture).testTag("capture-flight"),
+                .testTag("capture-flight"),
                 contentScale = ContentScale.Crop,
-                // The capture is still unfiltered here; give it the film look so it matches the saved photo it turns into.
-                colorFilter = flight.film.matrix?.let { values -> ColorFilter.colorMatrix(ColorMatrix(values)) })
+                // Film and timestamp are already baked into the decoded flight image.
+                colorFilter = null)
         }
     }
 }

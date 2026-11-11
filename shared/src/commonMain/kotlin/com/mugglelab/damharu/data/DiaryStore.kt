@@ -11,6 +11,7 @@ import kotlin.random.Random
  *  and unfiltered JPEG path with the id of the film that was loaded, a failure message, or all nulls when
  *  the user closed it. The film look is applied once, by [DiaryStore.save]. */
 interface PhotoSource {
+    val capturedTime: String? get() = null
     fun capture(completion: (path: String?, film: String?, failure: String?) -> Unit)
     /** After a successful shot the camera stays on screen, frozen, until the shared UI has the photo ready
      *  underneath it and calls this. Closing is instant (no transition) so the viewfinder image appears to
@@ -25,7 +26,7 @@ expect object PhotoFiles {
     fun delete(path: String)
     fun exists(path: String): Boolean
     fun names(path: String): List<String>
-    fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int)
+    fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int, timestamp: String? = null)
     fun bitmap(path: String): ImageBitmap
 }
 
@@ -44,7 +45,7 @@ interface RecordFiles {
     fun delete(path: String)
     fun exists(path: String): Boolean
     fun names(path: String): List<String>
-    fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int)
+    fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int, timestamp: String? = null)
 }
 private object DeviceRecordFiles : RecordFiles {
     override fun root() = PhotoFiles.root()
@@ -53,7 +54,7 @@ private object DeviceRecordFiles : RecordFiles {
     override fun delete(path: String) = PhotoFiles.delete(path)
     override fun exists(path: String) = PhotoFiles.exists(path)
     override fun names(path: String) = PhotoFiles.names(path)
-    override fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int) = PhotoFiles.render(source, destination, matrix, texture, maxSide)
+    override fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int, timestamp: String?) = PhotoFiles.render(source, destination, matrix, texture, maxSide, timestamp)
 }
 
 /** Image files are immutable. Atomically replacing the catalog is the commit point. */
@@ -83,14 +84,14 @@ class DiaryStore(private val files: RecordFiles = DeviceRecordFiles) {
         runCatching { files.names(root).filter { it.endsWith(".jpg") && it !in keep }.forEach { files.delete(path(it)) } }
     }
     /** Records can only be created or replaced for today; past days stay as they are. */
-    fun save(records: List<Record>, today: LocalDate, source: String, film: Film = Film.None): List<Record> {
+    fun save(records: List<Record>, today: LocalDate, source: String, film: Film = Film.None, timestamp: String? = null): List<Record> {
         val id = "${today}-${Random.nextLong().toULong()}"
         val record = Record(today.toString(), "$id-photo.jpg", "$id-thumb.jpg",
             records.find { it.date == today.toString() }?.memo.orEmpty(), film.id)
         val created = listOf(record.image, record.thumbnail)
         try {
             // Only the film-applied photo is kept: there is no unfiltered original to return to.
-            files.render(source, path(record.image), film.matrix, film.texture, 2048)
+            files.render(source, path(record.image), film.matrix, film.texture, 2048, timestamp)
             files.render(path(record.image), path(record.thumbnail), null, null, 180)
             val next = (records.filterNot { it.date == record.date } + record).sortedBy { it.date }
             commit(next)

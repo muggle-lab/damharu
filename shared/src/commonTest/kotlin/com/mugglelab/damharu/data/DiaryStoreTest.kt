@@ -9,6 +9,7 @@ class DiaryStoreTest {
         var failCommit = false
         var failResize = false
         var failCleanup = false
+        val timestamps = mutableListOf<String?>()
         val rendered = mutableListOf<Triple<String, FloatArray?, FilmTexture?>>()
         override fun root() = "/diary"
         override fun read(path: String) = data[path] ?: error("Missing")
@@ -16,11 +17,17 @@ class DiaryStoreTest {
         override fun delete(path: String) { if (failCleanup) error("Cleanup failed"); data.remove(path) }
         override fun exists(path: String) = data.containsKey(path)
         override fun names(path: String) = data.keys.filter { it.startsWith("$path/") }.map { it.substringAfterLast('/') }
-        override fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int) {
+        override fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int, timestamp: String?) {
+            timestamps += timestamp
             if (failResize) error("Encoding failed")
             rendered += Triple(destination.substringAfterLast('/'), matrix, texture)
             write(destination, read(source))
         }
+    }
+    @Test fun timestampIsAppliedOnceBeforeThumbnail() {
+        val files = MemoryFiles()
+        DiaryStore(files).save(emptyList(), LocalDate(2026, 10, 26), "/capture.jpg", Film.Monochrome, "15:34:09")
+        assertEquals(listOf("15:34:09", null), files.timestamps)
     }
     private val today = LocalDate(2026,9,18)
     @Test fun persistReplaceMemoAndDelete() {
@@ -63,10 +70,11 @@ class DiaryStoreTest {
     @Test fun newFilmsPersistAndApplyEffectsOnlyToThePhoto() {
         for (film in listOf(Film.Warm, Film.Clear, Film.Fade, Film.Natural)) {
             val files = MemoryFiles(); val store = DiaryStore(files)
-            val record = store.save(emptyList(), today, "/capture.jpg", film).single()
+            val record = store.save(emptyList(), today, "/capture.jpg", film, "15:34:09").single()
             assertEquals(film, Film.fromId(DiaryStore(files).load().single().film))
             assertEquals(listOf(Triple(record.image, film.matrix, film.texture),
                 Triple(record.thumbnail, null, null)), files.rendered.toList())
+            assertEquals(listOf("15:34:09", null), files.timestamps)
         }
     }
     @Test fun withoutAFilmThePhotoIsSavedAsCaptured() {

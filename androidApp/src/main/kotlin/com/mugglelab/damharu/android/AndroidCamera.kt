@@ -26,7 +26,7 @@ import java.io.File
 
 /** CameraX owns native lifecycle, orientation and JPEG capture. UI and zoom state stay shared. */
 @Composable
-fun AndroidCamera(activity: ComponentActivity, onComplete: (File?, Film) -> Unit) {
+fun AndroidCamera(activity: ComponentActivity, onComplete: (File?, Film, String?) -> Unit) {
     val state = remember { CameraState() }
     val preview = remember { PreviewView(activity).apply {
         // TextureView keeps the Compose viewfinder guides above the preview and lets a layer paint tint it.
@@ -41,7 +41,7 @@ fun AndroidCamera(activity: ComponentActivity, onComplete: (File?, Film) -> Unit
         scaleType = PreviewView.ScaleType.FIT_CENTER
     } }
     val latestCompletion by rememberUpdatedState(onComplete)
-    val adapter = remember { AndroidCameraAdapter(activity, preview, state) { file, film -> latestCompletion(file, film) } }
+    val adapter = remember { AndroidCameraAdapter(activity, preview, state) { file, film -> latestCompletion(file, film, state.capturedTime) } }
     DisposableEffect(adapter) {
         val oldOrientation = activity.requestedOrientation
         val bars = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
@@ -128,6 +128,7 @@ private class AndroidCameraAdapter(
     }
     override fun capture() {
         if (disposed || state.busy || !state.ready) return
+        state.freezeTime()
         state.busy = true
         val film = state.film
         val file = try { File.createTempFile("capture-", ".jpg", File(activity.cacheDir, "camera").apply { mkdirs() }) }

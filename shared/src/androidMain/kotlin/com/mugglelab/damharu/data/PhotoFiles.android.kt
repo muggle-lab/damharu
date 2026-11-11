@@ -30,7 +30,7 @@ actual object PhotoFiles {
     actual fun exists(path: String) = File(path).exists()
     actual fun names(path: String) = File(path).list()?.toList().orEmpty()
     actual fun bitmap(path: String): ImageBitmap = (BitmapFactory.decodeFile(path) ?: error("Cannot read image")).asImageBitmap()
-    actual fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int) {
+    actual fun render(source: String, destination: String, matrix: FloatArray?, texture: FilmTexture?, maxSide: Int, timestamp: String?) {
         val original = BitmapFactory.decodeFile(source) ?: error("Cannot read image")
         try {
             val scale = minOf(1f, maxSide.toFloat() / maxOf(original.width, original.height))
@@ -40,6 +40,19 @@ actual object PhotoFiles {
                 val canvas = Canvas(output)
                 canvas.drawBitmap(original, null, android.graphics.Rect(0, 0, output.width, output.height), paint)
                 if (texture != null) drawTexture(canvas, output.width.toFloat(), output.height.toFloat(), texture)
+                if (timestamp != null) {
+                    val unit = output.width / 366f
+                    val stamp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = android.graphics.Color.rgb(240, 138, 60)
+                        typeface = android.graphics.Typeface.MONOSPACE
+                        textSize = 24f * unit
+                        textAlign = Paint.Align.LEFT
+                        setShadowLayer(3f * unit, 0f, unit, android.graphics.Color.BLACK)
+                    }
+                    val advance = stamp.measureText("0") + unit
+                    val left = output.width - 24f * unit - (advance * timestamp.length - unit)
+                    timestamp.forEachIndexed { index, c -> canvas.drawText(c.toString(), left + index * advance, output.height - 30f * unit, stamp) }
+                }
                 val bytes = ByteArrayOutputStream().use { check(output.compress(Bitmap.CompressFormat.JPEG, 94, it)); it.toByteArray() }
                 write(destination, bytes)
             } finally { output.recycle() }

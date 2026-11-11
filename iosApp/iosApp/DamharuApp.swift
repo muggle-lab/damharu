@@ -27,6 +27,7 @@ private struct DiaryRoot: UIViewControllerRepresentable {
 /** The in-app camera is the only photo input. Captures are normalized into an app-owned temporary
     JPEG (max 2048px, upright, no location metadata) and handed to the shared UI, which saves them at once. */
 private final class PhotoCoordinator: NSObject, PhotoSource {
+    var capturedTime: String? = nil
     weak var host: UIViewController?
     private var completion: ((String?, String?, String?) -> Void)?
     private weak var camera: NativeCameraController?
@@ -42,6 +43,7 @@ private final class PhotoCoordinator: NSObject, PhotoSource {
     func capture(completion: @escaping (String?, String?, String?) -> Void) {
         guard self.completion == nil else { completion(nil, nil, "사진을 준비하는 중이에요."); return }
         self.completion = completion
+        capturedTime = nil
         guard NativeCameraController.available else { finish(nil, nil, "이 기기에서는 촬영할 수 없어요. 담하루는 앱에서 찍은 사진만 남길 수 있어요."); return }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--camera-preview") { presentCamera(); return }
@@ -64,6 +66,7 @@ private final class PhotoCoordinator: NSObject, PhotoSource {
         let camera = NativeCameraController { [weak self] image, film in
             guard let self else { return }
             guard let image else { self.finish(nil, nil, nil); return }
+            self.capturedTime = self.camera?.timestamp
             // After a shot the camera is still on screen, frozen. The shared UI closes it through
             // closeCamera() once the photo is ready underneath, so nothing shows in between.
             self.queue.async {
@@ -107,6 +110,7 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil
     }
     private let state = CameraState()
+    var timestamp: String? { state.capturedTime }
     private let preview = CameraMetalPreview()
     private let session = AVCaptureSession()
     private let photos = AVCapturePhotoOutput()
@@ -251,6 +255,7 @@ private final class NativeCameraController: UIViewController, CameraActions, AVC
     func film(value: Film) { preview.selectFilm(value) }
     func capture() {
         guard !state.busy, state.ready else { return }
+        state.freezeTime()
         state.busy = true
         if demo {
             let image = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400)).image { c in

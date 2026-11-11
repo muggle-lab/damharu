@@ -61,6 +61,8 @@ class CameraState {
     var zoom by mutableStateOf(1f)
     var ready by mutableStateOf(false)
     var busy by mutableStateOf(false)
+    var capturedTime by mutableStateOf<String?>(null)
+    fun freezeTime() { capturedTime = currentCameraTime() }
     var error by mutableStateOf<String?>(null)
     /** The film loaded for the next shot. The native adapter tints its live preview to match. */
     var film by mutableStateOf(Film.None)
@@ -137,6 +139,7 @@ fun CameraScreen(state: CameraState, actions: CameraActions, preview: @Composabl
                     // Grain and vignette are drawn by Compose above the native preview with the same numbers the export burns in.
                     Box(Modifier.fillMaxSize().filmTexture(state.film.texture))
                     ViewfinderGuides(Modifier.fillMaxSize())
+                    CameraTimestamp(state.capturedTime, Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 30.dp))
                     if (state.film != Film.None) Label(state.film.monoName, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 44.dp)
                         .background(Color.Black.copy(alpha = .45f), RoundedCornerShape(50)).padding(horizontal = 9.dp, vertical = 3.dp), color = DiaryPalette.ink, size = 10)
                 }

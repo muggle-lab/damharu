@@ -5,6 +5,33 @@ import kotlin.test.*
 import kotlin.math.abs
 
 class PhotoExportTest {
+    @Test fun timestampIsOrangeOverMonochromeAndOnlyInLowerRight() {
+        val source = "${PhotoFiles.root()}/timestamp-source.jpg"
+        val result = "${PhotoFiles.root()}/timestamp-result.jpg"
+        val surface = Surface.makeRasterN32Premul(366, 488)
+        try {
+            surface.canvas.clear(Color.makeRGB(90, 90, 90))
+            val image = surface.makeImageSnapshot()
+            val data = image.encodeToData(EncodedImageFormat.JPEG, 100)!!
+            PhotoFiles.write(source, data.bytes)
+            data.close(); image.close()
+            PhotoFiles.render(source, result, Film.Monochrome.matrix, Film.Monochrome.texture, 2048, "15:34:09")
+            val output = Image.makeFromEncoded(PhotoFiles.read(result))
+            val bitmap = Bitmap.makeFromImage(output)
+            try {
+                var orange = 0
+                for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                    val c = bitmap.getColor(x, y)
+                    if (Color.getR(c) > Color.getG(c) + 35 && Color.getG(c) > Color.getB(c) + 20) {
+                        assertTrue(x > 230 && y > 435 && y < 465, "Stamp outside lower-right: $x,$y")
+                        orange++
+                    }
+                }
+                assertTrue(orange > 70, "Missing timestamp pixels: $orange")
+            } finally { bitmap.close(); output.close() }
+        } finally { surface.close(); PhotoFiles.delete(source); PhotoFiles.delete(result) }
+    }
+
     @Test fun nativeRenderResizesAndAppliesFilm() {
         val source = "${PhotoFiles.root()}/test-source.jpg"
         val result = "${PhotoFiles.root()}/test-result.jpg"
