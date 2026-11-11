@@ -3,11 +3,13 @@ package com.mugglelab.damharu
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,7 +26,6 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
@@ -134,28 +135,26 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
             }
         } else {
             val date = LocalDate.parse(current.date)
-            val index = records.indexOf(current)
-            fun navigate(delta: Int) { if (memo == null && index + delta in records.indices) selected = records[index + delta].date }
             Column(Modifier.fillMaxSize().background(colors.background).safeDrawingPadding().imePadding()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(48.dp).clickable(role = Role.Button) { closeScreen() }.testTag("close-screen").semantics { contentDescription = "닫기" }, contentAlignment = Alignment.Center) {
-                        BasicText("‹", style = DiaryTextStyle.copy(color = colors.ink, fontSize = 26.sp))
+                        Canvas(Modifier.size(16.dp)) {
+                            val stroke = 1.6.dp.toPx()
+                            val tip = Offset(size.width * .28f, center.y)
+                            drawLine(colors.ink, Offset(size.width * .72f, stroke / 2), tip, stroke, StrokeCap.Round)
+                            drawLine(colors.ink, tip, Offset(size.width * .72f, size.height - stroke / 2), stroke, StrokeCap.Round)
+                        }
                     }
                     Spacer(Modifier.weight(1f))
                     if (memo == null) {
                         // Only today's photo can be retaken; past days keep the moment they were taken.
                         if (canRecord(date, today)) TextAction("사진 변경", colors.soft, "change-photo") { requestCapture() }
-                        TextAction("삭제", colors.danger, "delete-record") { confirmation = "delete" }
+                        TextAction("삭제", colors.danger, "delete-record", fontSize = 16.sp) { confirmation = "delete" }
                     }
                 }
                 if (memo == null) {
-                    var drag by remember { mutableFloatStateOf(0f) }
                     Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
-                        LocalPhoto(store.path(current.image), Modifier.aspectRatio(.75f).clip(RoundedCornerShape(3.dp)).pointerInput(selected) {
-                            detectHorizontalDragGestures(onDragStart = { drag = 0f }, onDragEnd = {
-                                if (drag < -70f) navigate(1) else if (drag > 70f) navigate(-1)
-                            }) { change, amount -> change.consume(); drag += amount }
-                        })
+                        LocalPhoto(store.path(current.image), Modifier.aspectRatio(.75f).clip(RoundedCornerShape(3.dp)))
                     }
                 }
                 Column(Modifier.fillMaxWidth().then(if (memo != null) Modifier.weight(1f).verticalScroll(rememberScrollState()) else Modifier).padding(horizontal = 20.dp)) {
@@ -169,11 +168,7 @@ fun App(today: LocalDate, photoSource: PhotoSource) {
                             Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(role = Role.Button, onClickLabel = "한 줄 수정") { memo = current.memo }
                                 .padding(top = 10.dp, bottom = 14.dp).testTag("edit-memo"),
                             style = DiaryTextStyle.copy(color = if (current.memo.isEmpty()) colors.faint else colors.soft, fontSize = 14.sp, lineHeight = 24.sp))
-                        Hairline(Modifier.fillMaxWidth())
-                        Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                            NeighbourLink(records.getOrNull(index - 1)?.let { "‹ ${LocalDate.parse(it.date).shortMonoLabel}" } ?: "‹ 이전", index > 0, "previous-record") { navigate(-1) }
-                            NeighbourLink(records.getOrNull(index + 1)?.let { "${LocalDate.parse(it.date).shortMonoLabel} ›" } ?: "다음 ›", index < records.lastIndex, "next-record") { navigate(1) }
-                        }
+
                     } else {
                         Spacer(Modifier.height(10.dp))
                         MemoInput(memo.orEmpty(), { memo = it })
@@ -278,17 +273,9 @@ private fun CaptureFlightOverlay(flight: CaptureFlight, target: Rect?, onReady: 
 private fun lerp(from: Float, to: Float, fraction: Float) = from + (to - from) * fraction
 
 @Composable
-private fun TextAction(text: String, color: Color, tag: String, onClick: () -> Unit) {
+private fun TextAction(text: String, color: Color, tag: String, fontSize: androidx.compose.ui.unit.TextUnit = 13.sp, onClick: () -> Unit) {
     Box(Modifier.heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 10.dp).testTag(tag), contentAlignment = Alignment.Center) {
-        BasicText(text, style = DiaryTextStyle.copy(color = color, fontSize = 13.sp))
-    }
-}
-
-@Composable
-private fun NeighbourLink(text: String, enabled: Boolean, tag: String, onClick: () -> Unit) {
-    val colors = LocalDiaryColors.current
-    Box(Modifier.heightIn(min = 44.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick).testTag(tag), contentAlignment = Alignment.Center) {
-        DiaryMono(text, color = if (enabled) colors.soft else Color(0xFF2A2824))
+        BasicText(text, style = DiaryTextStyle.copy(color = color, fontSize = fontSize))
     }
 }
 

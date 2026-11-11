@@ -24,6 +24,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Path
@@ -112,10 +113,15 @@ fun CameraScreen(state: CameraState, actions: CameraActions, preview: @Composabl
     var filmsOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().background(Background).safeDrawingPadding()) {
         // A dismissal action is necessary for cancellation, including devices without a back gesture.
-        Box(Modifier.fillMaxWidth().height(CAMERA_TOP_BAR_DP.dp)) {
+        Box(Modifier.fillMaxWidth().height(CAMERA_TOP_BAR_DP.dp).padding(horizontal = 12.dp)) {
             Box(Modifier.size(44.dp).clickable(enabled = !state.busy, role = Role.Button, onClickLabel = "촬영 닫기") { actions.close() }
                 .testTag("camera-close").semantics { contentDescription = "촬영 닫기" }, contentAlignment = Alignment.Center) {
-                Label("×", size = 26)
+                Canvas(Modifier.size(16.dp)) {
+                    val stroke = 1.6.dp.toPx()
+                    val inset = stroke / 2
+                    drawLine(Ink, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
+                    drawLine(Ink, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
+                }
             }
         }
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
