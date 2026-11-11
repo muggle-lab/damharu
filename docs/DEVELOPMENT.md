@@ -27,12 +27,14 @@ xcodebuild -project iosApp/Damharu.xcodeproj -scheme Damharu \
 
 `scripts/gradle.sh`는 JAVA_HOME이 없으면 Android Studio의 JBR을 찾는다. 전역 Java 설정은 바꾸지 않는다. Xcode build phase에서도 이 스크립트를 사용한다.
 
+
 ## 코드와 학습 포인트
 
 - `commonMain/App.kt`: 홈 → 카메라 → 촬영 즉시 저장 → 홈, 그리고 상세 흐름과 작업 상태. 영구 데이터와 화면 상태를 구분한다. 셔터가 곧 저장 버튼이라 촬영 뒤 확인 단계가 없다.
 - `PhotoUi.kt`: 공통 이미지 표시(저장된 그대로), 필름 질감의 실시간 미리보기 `Modifier.filmTexture`(뷰파인더·비행·필름 타일용), 선택적 한 줄 입력.
-- `Theme.kt`: 시스템 모드와 무관한 단일 다크 팔레트 `DiaryPalette`. 명조는 `FontFamily.Serif`, 메타데이터는 `FontFamily.Monospace`.
-- `home/CalendarModel.kt`: 달력 계산과 `canRecord`/`actionForDate`. "오늘만 기록" 규칙은 UI가 아니라 이 순수 함수에 있고 공통 테스트로 검증한다.
+- `Theme.kt`: 시스템 모드와 독립적인 다크 `DiaryPalette` / 아이보리 `DiaryLightPalette`. `SettingsScreen.kt`의 `AppearanceState`를 관찰하며 설정은 UserDefaults/SharedPreferences에 저장한다. 카메라도 같은 테마를 적용하며 프리뷰 영상·필름 처리는 테마와 독립적이다. 명조는 `FontFamily.Serif`, 메타데이터는 `FontFamily.Monospace`.
+- `home/HomeScreen.kt`: 달력 공통 UI. App의 단일 LazyListState로 상세 왕복 시 위치를 유지한다. 보기 모드 선택·저장은 제거했다.
+- `home/CalendarModel.kt`: 월별 기록 필터·최신순 정렬, 달력 계산과 `canRecord`/`actionForDate`. "오늘만 기록" 규칙은 UI가 아니라 이 순수 함수에 있고 공통 테스트로 검증한다.
 - `data/Film.kt`: 촬영 전에 끼우는 필름. 4x5 색상 행렬과 `FilmTexture`(입자·비네팅 수치, 고정 시드 입자)로 정의해 실시간 프리뷰(iOS Core Image, Android 레이어 페인트)와 저장(Skia/Bitmap `render`)이 같은 값을 쓴다. 기록에는 id 문자열만 남긴다.
 - `data/DiaryStore.kt`: JSON 저장 형식과 날짜별 기록 교체/삭제. RecordFiles를 주입해 저장 실패를 테스트한다.
 - `PhotoFiles`: expect/actual로 플랫폼 파일 읽기·원자적 쓰기·이미지 디코딩/출력을 분리한다.
@@ -69,7 +71,7 @@ Android 타깃 추가에 맞춰 AGP 9.1의 최소 Gradle 9.3.1로 올렸다. Kot
 - [Apple AVCaptureSession](https://developer.apple.com/documentation/avfoundation/avcapturesession): 세션 시작/종료는 UI를 막지 않는 전용 큐에서 처리
 - [CameraX 1.5.3 릴리스](https://developer.android.com/jetpack/androidx/releases/camera#1.5.3), [PreviewView](https://developer.android.com/media/camera/camerax/preview): Android 촬영에 camera-camera2 / camera-lifecycle / camera-view 1.5.3 사용
 
-설치된 Xcode 26.6은 공식 Kotlin 호환표의 26.4보다 높다. 시뮬레이터 결과와 미검증 항목은 TASKS.md에 기록한다. Kotlin expect/actual class의 Beta 경고 및 Skia iOS 최소 버전 링크 경고는 숨기지 않았다.
+2026-10-23 기준 설치 환경은 Xcode 27.1(27A9275) / macOS 27.0.1이다. 공식 Kotlin 호환표의 Xcode 버전은 Kotlin 2.4.10과 2.4.20–2.4.21 모두 26.4로, 현재 설치 버전은 그 범위 밖이다. `macOS 26.5+ / Xcode 26.5+ is not yet supported` 권장 사항은 지원 범위 경고이며 그 자체가 컴파일 실패를 뜻하지 않는다. 현재 프로젝트는 Xcode 27.1에서 시뮬레이터 및 iPhone ARM64 빌드(서명 제외)를 통과했다. Android도 캐시 없이 APK 빌드와 host 테스트를 통과했다. 자세한 검증 결과와 미검증 항목은 TASKS.md에 기록한다. Kotlin expect/actual class의 Beta 경고 및 Skia iOS 최소 버전 링크 경고는 숨기지 않았다.
 
 UI 테스트는 테스트용 시뮬레이터/에뮬레이터에서 실행한다. iOS 테스트는 2026-09-16·17 기록을 생성/삭제하고 2026-09-01이 비어 있다고 가정하므로 해당 날짜에 개인 기록이 없는 테스트 기기를 사용한다. Android 테스트는 에뮬레이터 카메라로 오늘 기록을 생성/삭제한다. Debug의 `--date 2026-09-17` 실행 인자는 테스트용 오늘 날짜만 고정하고, `--camera-preview`는 시뮬레이터용 가짜 카메라 프레임을 공급한다. UI 테스트 소스만 바꾼 뒤 `xcodebuild test`가 이전 테스트 번들을 다시 실행한 적이 있어, 그럴 때는 `build-for-testing` 후 `test-without-building`으로 실행한다. 개발 샘플을 실제 기록으로 표시하는 컨트롤은 제거했다.
 
